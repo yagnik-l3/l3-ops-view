@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "mcp__supabase__list_tables",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias=\"@/*\" --yes)",
+      "Bash(mkdir -p /tmp/lll-backup)",
+      "Bash(cp -r .agents .mcp.json skills-lock.json /tmp/lll-backup/)",
+      "Read(//tmp/**)",
+      "Bash(cp -r .agents .mcp.json .vscode skills-lock.json /tmp/lll-backup/)",
+      "Bash(rm -rf .agents .mcp.json .vscode)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}
