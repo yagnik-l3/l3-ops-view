@@ -9,7 +9,9 @@
       "Bash(cp -r .agents .mcp.json skills-lock.json /tmp/lll-backup/)",
       "Read(//tmp/**)",
       "Bash(cp -r .agents .mcp.json .vscode skills-lock.json /tmp/lll-backup/)",
-      "Bash(rm -rf .agents .mcp.json .vscode)"
+      "Bash(rm -rf .agents .mcp.json .vscode)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init --defaults --yes)"
     ]
   },
   "enabledMcpjsonServers": [
