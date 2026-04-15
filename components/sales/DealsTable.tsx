@@ -1,17 +1,17 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate } from '@/lib/utils/date'
-import { formatINR } from '@/lib/utils/currency'
-import { cn } from '@/lib/utils'
-import type { Deal, DealStatus } from '@/lib/supabase/types'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { createClient } from '@/lib/supabase/client'
+import type { Deal, DealStatus } from '@/lib/supabase/types'
+import { cn } from '@/lib/utils'
+import { formatINR } from '@/lib/utils/currency'
+import { formatDate } from '@/lib/utils/date'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
+import { useState } from 'react'
 
 const DEAL_STATUSES: DealStatus[] = ['prospect', 'proposal', 'negotiation', 'closed_won', 'closed_lost']
 
@@ -86,7 +86,7 @@ export function DealsTable({ canEdit }: DealsTableProps) {
 
       {isLoading ? (
         <div className="space-y-2">
-          {[1,2,3,4].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-12 w-full" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-200 py-12 text-center">
@@ -115,7 +115,7 @@ export function DealsTable({ canEdit }: DealsTableProps) {
                   <td className="px-4 py-3 font-medium text-zinc-800 truncate max-w-[160px]">{deal.name}</td>
                   <td className="px-4 py-3 text-zinc-500">{deal.client_name}</td>
                   <td className="px-4 py-3 text-zinc-900 font-medium hidden sm:table-cell">{formatINR(deal.value)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={deal.status} type="deal" /></td>
+                  <td className="px-4 py-3"><StatusBadge status={deal.status} /></td>
                   <td className="px-4 py-3 text-zinc-400 hidden md:table-cell">
                     {formatDate(deal.actual_close_date ?? deal.expected_close_date)}
                   </td>

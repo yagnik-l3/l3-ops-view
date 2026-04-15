@@ -119,10 +119,11 @@ export function ResourceTimeline({ weeks, filter }: Props) {
   }, [])
 
   // Divide available width equally across however many weeks are shown.
-  // This means 8w, 12w, 16w, 20w all fill the screen with no horizontal scroll.
+  // This means 8w and 12w both fill the screen with no horizontal scroll.
+  // containerW is 0 only during SSR — fall back to MIN_COL in that case.
   const COL_W: number = containerW > 0
     ? Math.max(MIN_COL, Math.floor((containerW - NAME_W) / weeks.length))
-    : Math.max(MIN_COL, Math.floor((window.innerWidth - SIDEBAR_W - NAME_W) / weeks.length))
+    : MIN_COL
 
   // ── Expanded week state ────────────────────────────────────
   const [expandedWeekIdx, setExpandedWeekIdx] = useState<number | null>(null)
