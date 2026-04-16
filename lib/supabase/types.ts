@@ -182,12 +182,12 @@ export type Database = {
     Enums: {
       person_type: "developer" | "designer" | "other"
       project_status:
-        | "pipeline"
-        | "active"
-        | "in_production"
-        | "completed"
-        | "on_hold"
-        | "paused"
+      | "pipeline"
+      | "active"
+      | "in_production"
+      | "completed"
+      | "on_hold"
+      | "paused"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -199,7 +199,7 @@ export type Database = {
 
 export type ProjectStatus = Database["public"]["Enums"]["project_status"]
 export type PersonType = Database["public"]["Enums"]["person_type"]
-export type DealStatus = Database["public"]["Enums"]["deal_status"]
+export type DealStatus = Database["public"]["Enums"]
 export type UserRole = "sales" | "production"
 
 export type Project = Database["public"]["Tables"]["projects"]["Row"]
@@ -208,9 +208,9 @@ export type Person = Database["public"]["Tables"]["people"]["Row"]
 export type PersonInsert = Database["public"]["Tables"]["people"]["Insert"]
 export type Allocation = Database["public"]["Tables"]["allocations"]["Row"]
 export type AllocationInsert = Database["public"]["Tables"]["allocations"]["Insert"]
-export type SalesTarget = Database["public"]["Tables"]["sales_targets"]["Row"]
-export type Deal = Database["public"]["Tables"]["deals"]["Row"]
-export type DealInsert = Database["public"]["Tables"]["deals"]["Insert"]
+export type SalesTarget = Database["public"]["Tables"]
+export type Deal = Database["public"]["Tables"]
+export type DealInsert = Database["public"]["Tables"]
 export type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"]
 
 // Extended join types
