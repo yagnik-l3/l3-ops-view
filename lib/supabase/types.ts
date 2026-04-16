@@ -64,53 +64,6 @@ export type Database = {
           },
         ]
       }
-      deals: {
-        Row: {
-          actual_close_date: string | null
-          client_name: string
-          closed_by: string | null
-          created_at: string | null
-          expected_close_date: string | null
-          id: string
-          linked_project_id: string | null
-          name: string
-          status: Database["public"]["Enums"]["deal_status"]
-          value: number
-        }
-        Insert: {
-          actual_close_date?: string | null
-          client_name: string
-          closed_by?: string | null
-          created_at?: string | null
-          expected_close_date?: string | null
-          id?: string
-          linked_project_id?: string | null
-          name: string
-          status?: Database["public"]["Enums"]["deal_status"]
-          value?: number
-        }
-        Update: {
-          actual_close_date?: string | null
-          client_name?: string
-          closed_by?: string | null
-          created_at?: string | null
-          expected_close_date?: string | null
-          id?: string
-          linked_project_id?: string | null
-          name?: string
-          status?: Database["public"]["Enums"]["deal_status"]
-          value?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "deals_linked_project_id_fkey"
-            columns: ["linked_project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       people: {
         Row: {
           avatar_color: string | null
@@ -201,51 +154,21 @@ export type Database = {
         }
         Relationships: []
       }
-      sales_targets: {
-        Row: {
-          achieved_amount: number
-          created_at: string | null
-          id: string
-          month: string
-          notes: string | null
-          target_amount: number
-        }
-        Insert: {
-          achieved_amount?: number
-          created_at?: string | null
-          id?: string
-          month: string
-          notes?: string | null
-          target_amount?: number
-        }
-        Update: {
-          achieved_amount?: number
-          created_at?: string | null
-          id?: string
-          month?: string
-          notes?: string | null
-          target_amount?: number
-        }
-        Relationships: []
-      }
       user_profiles: {
         Row: {
           created_at: string | null
           full_name: string | null
           id: string
-          role: string
         }
         Insert: {
           created_at?: string | null
           full_name?: string | null
           id: string
-          role?: string
         }
         Update: {
           created_at?: string | null
           full_name?: string | null
           id?: string
-          role?: string
         }
         Relationships: []
       }
@@ -257,12 +180,6 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      deal_status:
-        | "prospect"
-        | "proposal"
-        | "negotiation"
-        | "closed_won"
-        | "closed_lost"
       person_type: "developer" | "designer" | "other"
       project_status:
         | "pipeline"

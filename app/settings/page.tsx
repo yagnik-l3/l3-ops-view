@@ -136,7 +136,7 @@ export default function SettingsPage() {
   const inviteMutation = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.auth.admin.inviteUserByEmail(inviteForm.email, {
-        data: { full_name: inviteForm.full_name, role: 'production' },
+        data: { full_name: inviteForm.full_name },
       })
       if (error) throw error
     },
@@ -259,7 +259,6 @@ export default function SettingsPage() {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium text-[#e6edf3]">{p.full_name ?? 'Unnamed'}</p>
-                <p className="text-xs text-[#6e7681]">{p.role}</p>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#378add]/10 text-[#378add] border border-[#378add]/20">
                 Founder
