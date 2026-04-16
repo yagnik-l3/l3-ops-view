@@ -64,6 +64,24 @@ export function ProjectDetail({ project, open, onClose }: ProjectDetailProps) {
     }
   }, [project?.id])
 
+  // Auto-calculate estimated_weeks from dates whenever either date changes in edit mode
+  useEffect(() => {
+    if (!editing) return
+    const start = form.start_date
+    const end = form.target_end_date
+    if (!start || !end) return
+    // Parse YYYY-MM-DD components explicitly and use Date.UTC to avoid
+    // any timezone / ISO-string-parsing ambiguity.
+    const [sy, sm, sd] = start.split('-').map(Number)
+    const [ey, em, ed] = end.split('-').map(Number)
+    if (!sy || !sm || !sd || !ey || !em || !ed) return
+    const diffDays = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000)
+    setForm(f => ({
+      ...f,
+      estimated_weeks: diffDays > 0 ? Math.max(1, Math.round(diffDays / 7)) : undefined,
+    }))
+  }, [editing, form.start_date, form.target_end_date])
+
   const { data: allocations, isLoading: loadingAllocs } = useQuery({
     queryKey: ['allocations_project', project?.id],
     enabled: !!project?.id && open,
@@ -249,7 +267,7 @@ export function ProjectDetail({ project, open, onClose }: ProjectDetailProps) {
                   <input type="number"
                     className="w-full text-sm border border-zinc-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-zinc-900"
                     value={form.estimated_weeks ?? ''}
-                    onChange={e => setForm(f => ({ ...f, estimated_weeks: parseInt(e.target.value) || undefined }))} />
+                    onChange={e => { const v = parseInt(e.target.value, 10); setForm(f => ({ ...f, estimated_weeks: Number.isFinite(v) && v > 0 ? v : undefined })) }} />
                 ) : (
                   <p className="text-sm text-zinc-800">{project.estimated_weeks ?? '—'}</p>
                 )}

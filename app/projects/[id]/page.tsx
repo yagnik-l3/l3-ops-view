@@ -124,6 +124,22 @@ export default function ProjectPage() {
     }
   }, [project?.id])
 
+  // Auto-calculate estimated_weeks from dates whenever either date changes in edit mode
+  useEffect(() => {
+    if (!editing) return
+    const start = form.start_date
+    const end = form.target_end_date
+    if (!start || !end) return
+    const [sy, sm, sd] = (start as string).split('-').map(Number)
+    const [ey, em, ed] = (end as string).split('-').map(Number)
+    if (!sy || !sm || !sd || !ey || !em || !ed) return
+    const diffDays = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000)
+    setForm(f => ({
+      ...f,
+      estimated_weeks: diffDays > 0 ? Math.max(1, Math.round(diffDays / 7)) : undefined,
+    }))
+  }, [editing, form.start_date, form.target_end_date])
+
   const updateMutation = useMutation({
     mutationFn: async (updates: Partial<Project>) => {
       const { data, error } = await supabase

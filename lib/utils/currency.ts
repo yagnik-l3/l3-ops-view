@@ -6,13 +6,13 @@ export function formatINR(value: number | null | undefined): string {
   if (value === null || value === undefined) return '₹0'
 
   if (value >= 10000000) {
-    return `₹${(value / 10000000).toFixed(1)}Cr`
+    return `₹${(value / 10000000).toFixed(3)}Cr`
   }
   if (value >= 100000) {
-    return `₹${(value / 100000).toFixed(1)}L`
+    return `₹${(value / 100000).toFixed(2)}L`
   }
   if (value >= 1000) {
-    return `₹${(value / 1000).toFixed(1)}K`
+    return `₹${(value / 1000).toFixed(2)}K`
   }
   return `₹${value.toFixed(0)}`
 }

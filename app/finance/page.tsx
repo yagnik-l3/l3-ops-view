@@ -92,11 +92,9 @@ function allocationCostInMonth(
   return allocationSalaryCost(start, end, alloc.capacity_percent, monthlySalary) ?? 0
 }
 
-function isStretched(p: Project): boolean {
-  if (!p.start_date || !p.estimated_weeks || !p.target_end_date) return false
-  const planned = new Date(p.start_date + 'T00:00:00')
-  planned.setDate(planned.getDate() + Math.round(p.estimated_weeks * 7))
-  return new Date(p.target_end_date + 'T00:00:00') > planned
+function isStretched(p: Project, allAllocations: AllocationFull[]): boolean {
+  if (!p.target_end_date) return false
+  return allAllocations.some(a => a.project_id === p.id && a.end_date > p.target_end_date!)
 }
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -272,8 +270,8 @@ export default function FinancePage() {
   }
 
   const m_ = metrics!
-  const stretchedProjects = m_.projectRows.filter(r => isStretched(r.project))
-  const benchEmployees = m_.personRows.filter(r => r.utilPct < 20 && r.salary > 0)
+  const stretchedProjects = m_.projectRows.filter(r => isStretched(r.project, allocations!))
+  const benchEmployees = m_.personRows.filter(r => r.utilPct < 20 && r.salary > 0 && r.person.type !== 'founder')
 
   return (
     <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
@@ -407,7 +405,7 @@ export default function FinancePage() {
                   .slice()
                   .sort((a, b) => b.revenue - a.revenue)
                   .map(({ project: p, revenue, devCost, margin }, i) => {
-                    const stretched = isStretched(p)
+                    const stretched = isStretched(p, allocations!)
                     const mPct = revenue > 0 ? Math.round((margin / revenue) * 100) : null
                     return (
                       <tr
@@ -480,111 +478,156 @@ export default function FinancePage() {
       </div>
 
       {/* ── Employee Cost Breakdown ── */}
-      <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#30363d] flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-medium text-[#e6edf3]">Employee Cost Breakdown</h2>
-            <p className="text-xs text-[#6e7681] mt-0.5">Payroll vs. allocated project hours · bench = unallocated salary cost</p>
-          </div>
-          <span className="text-xs font-medium text-[#8b949e] flex-shrink-0 mt-0.5 tabular-nums">{formatINR(m_.totalSalary)}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#30363d]">
-                <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Employee</th>
-                <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Monthly Cost</th>
-                <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Allocated</th>
-                <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden sm:table-cell">Bench</th>
-                <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Util.</th>
-                <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden lg:table-cell">Projects</th>
-              </tr>
-            </thead>
-            <tbody>
-              {m_.personRows
-                .slice()
-                .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0))
-                .map(({ person, salary, allocatedCost, bench, utilPct, projectNames }, i) => (
-                  <tr
-                    key={person.id}
-                    className={cn(
-                      'border-b border-[#30363d]/60 last:border-0 hover:bg-[#21262d]/40 transition-colors',
-                      i % 2 === 1 && 'bg-[#0d1117]/30',
-                    )}
+      {(() => {
+        const founderRows = m_.personRows.filter(r => r.person.type === 'founder')
+        const staffRows = m_.personRows.filter(r => r.person.type !== 'founder')
+        const founderSalary = founderRows.reduce((s, r) => s + r.salary, 0)
+        const staffSalary = m_.totalSalary - founderSalary
+
+        function PersonRow({ person, salary, allocatedCost, bench, utilPct, projectNames, i, isFounder }: {
+          person: Person; salary: number; allocatedCost: number; bench: number; utilPct: number; projectNames: string[]; i: number; isFounder?: boolean
+        }) {
+          return (
+            <tr
+              key={person.id}
+              className={cn(
+                'border-b border-[#30363d]/60 last:border-0 hover:bg-[#21262d]/40 transition-colors',
+                i % 2 === 1 && 'bg-[#0d1117]/30',
+              )}
+            >
+              <td className="px-5 py-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+                    style={{
+                      backgroundColor: (person.avatar_color ?? '#484f58') + '33',
+                      color: person.avatar_color ?? '#8b949e',
+                    }}
                   >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
+                    {person.avatar_initials ?? person.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-[#c9d1d9] truncate">{person.name}</p>
+                    <p className="text-xs text-[#6e7681] capitalize">{person.role}</p>
+                  </div>
+                </div>
+              </td>
+              <td className="px-3 py-3 text-right font-medium tabular-nums text-[#c9d1d9]">
+                {salary > 0 ? formatINR(salary) : <span className="text-[#484f58]">—</span>}
+              </td>
+              {isFounder ? (
+                <>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#484f58]">—</td>
+                  <td className="px-3 py-3 text-right hidden sm:table-cell text-[#484f58] text-xs">—</td>
+                  <td className="px-3 py-3 text-right">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#378add]/10 text-[#378add] border border-[#378add]/20">mgmt</span>
+                  </td>
+                  <td className="px-5 py-3 hidden lg:table-cell">
+                    <span className="text-xs text-[#484f58] italic">management</span>
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#8b949e]">
+                    {allocatedCost > 0 ? formatINR(allocatedCost) : <span className="text-[#484f58]">—</span>}
+                  </td>
+                  <td className="px-3 py-3 text-right hidden sm:table-cell">
+                    {bench > 0 ? (
+                      <span className="text-[#EF9F27] text-xs font-medium tabular-nums">{formatINR(bench)}</span>
+                    ) : (
+                      <span className="text-[#484f58] text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2 justify-end">
+                      <div className="w-14 h-1.5 bg-[#21262d] rounded-full overflow-hidden flex-shrink-0">
                         <div
-                          className="h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+                          className="h-full rounded-full transition-all"
                           style={{
-                            backgroundColor: (person.avatar_color ?? '#484f58') + '33',
-                            color: person.avatar_color ?? '#8b949e',
+                            width: `${utilPct}%`,
+                            backgroundColor: utilPct >= 80 ? '#1D9E75' : utilPct >= 40 ? '#EF9F27' : '#E24B4A',
                           }}
-                        >
-                          {person.avatar_initials ?? person.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-[#c9d1d9] truncate">{person.name}</p>
-                          <p className="text-xs text-[#6e7681] capitalize">{person.role}</p>
-                        </div>
+                        />
                       </div>
-                    </td>
-                    <td className="px-3 py-3 text-right font-medium tabular-nums text-[#c9d1d9]">
-                      {salary > 0 ? formatINR(salary) : <span className="text-[#484f58]">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-[#8b949e]">
-                      {allocatedCost > 0 ? formatINR(allocatedCost) : <span className="text-[#484f58]">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-right hidden sm:table-cell">
-                      {bench > 0 ? (
-                        <span className="text-[#EF9F27] text-xs font-medium tabular-nums">{formatINR(bench)}</span>
-                      ) : (
-                        <span className="text-[#484f58] text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2 justify-end">
-                        <div className="w-14 h-1.5 bg-[#21262d] rounded-full overflow-hidden flex-shrink-0">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${utilPct}%`,
-                              backgroundColor:
-                                utilPct >= 80 ? '#1D9E75' : utilPct >= 40 ? '#EF9F27' : '#E24B4A',
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-[#8b949e] w-9 text-right tabular-nums">{utilPct}%</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 hidden lg:table-cell max-w-[240px]">
-                      {projectNames.length > 0 ? (
-                        <span className="text-xs text-[#8b949e] truncate block">{projectNames.join(', ')}</span>
-                      ) : (
-                        <span className="text-xs text-[#484f58] italic">on bench</span>
-                      )}
-                    </td>
+                      <span className="text-xs text-[#8b949e] w-9 text-right tabular-nums">{utilPct}%</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 hidden lg:table-cell max-w-[240px]">
+                    {projectNames.length > 0 ? (
+                      <span className="text-xs text-[#8b949e] truncate block">{projectNames.join(', ')}</span>
+                    ) : (
+                      <span className="text-xs text-[#484f58] italic">on bench</span>
+                    )}
+                  </td>
+                </>
+              )}
+            </tr>
+          )
+        }
+
+        return (
+          <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#30363d] flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-medium text-[#e6edf3]">Employee Cost Breakdown</h2>
+                <p className="text-xs text-[#6e7681] mt-0.5">Payroll vs. allocated project hours · bench = unallocated salary cost</p>
+              </div>
+              <span className="text-xs font-medium text-[#8b949e] flex-shrink-0 mt-0.5 tabular-nums">{formatINR(m_.totalSalary)}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#30363d]">
+                    <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Employee</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Monthly Cost</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Allocated</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden sm:table-cell">Bench</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Util.</th>
+                    <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden lg:table-cell">Projects</th>
                   </tr>
-                ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-[#30363d] bg-[#0d1117]/40">
-                <td className="px-5 py-3 text-xs font-medium text-[#6e7681]">Total</td>
-                <td className="px-3 py-3 text-right text-sm font-bold text-[#c9d1d9] tabular-nums">{formatINR(m_.totalSalary)}</td>
-                <td className="px-3 py-3 text-right text-sm font-medium text-[#8b949e] tabular-nums">{formatINR(m_.totalAllocatedCost)}</td>
-                <td className="px-3 py-3 text-right hidden sm:table-cell">
-                  {m_.benchCost > 0 ? (
-                    <span className="text-sm font-medium text-[#EF9F27] tabular-nums">{formatINR(m_.benchCost)}</span>
-                  ) : (
-                    <span className="text-[#484f58]">—</span>
+                </thead>
+                <tbody>
+                  {/* Staff rows */}
+                  {staffRows
+                    .slice()
+                    .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0))
+                    .map((row, i) => <PersonRow key={row.person.id} {...row} i={i} />)}
+
+                  {/* Founder rows — separator + rows */}
+                  {founderRows.length > 0 && (
+                    <>
+                      <tr className="border-b border-t border-[#30363d] bg-[#0d1117]/60">
+                        <td colSpan={6} className="px-5 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#378add]">
+                          Management / Founders — {formatINR(founderSalary)}/mo
+                        </td>
+                      </tr>
+                      {founderRows
+                        .slice()
+                        .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0))
+                        .map((row, i) => <PersonRow key={row.person.id} {...row} i={i} isFounder />)}
+                    </>
                   )}
-                </td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-[#30363d] bg-[#0d1117]/40">
+                    <td className="px-5 py-3 text-xs font-medium text-[#6e7681]">Total</td>
+                    <td className="px-3 py-3 text-right text-sm font-bold text-[#c9d1d9] tabular-nums">{formatINR(m_.totalSalary)}</td>
+                    <td className="px-3 py-3 text-right text-sm font-medium text-[#8b949e] tabular-nums">{formatINR(m_.totalAllocatedCost)}</td>
+                    <td className="px-3 py-3 text-right hidden sm:table-cell">
+                      {m_.benchCost > 0 ? (
+                        <span className="text-sm font-medium text-[#EF9F27] tabular-nums">{formatINR(m_.benchCost)}</span>
+                      ) : (
+                        <span className="text-[#484f58]">—</span>
+                      )}
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── 6-Month Trend ── */}
       <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5">

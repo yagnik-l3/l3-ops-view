@@ -14,7 +14,7 @@ const AVATAR_COLORS = [
   '#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6',
 ]
 
-const PERSON_TYPES: PersonType[] = ['developer', 'designer', 'other']
+const PERSON_TYPES: PersonType[] = ['developer', 'designer', 'founder', 'other']
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { Person, Allocation, Project } from '@/lib/supabase/types'
 
-type FilterType = 'all' | 'developers' | 'designers'
+type FilterType = 'all' | 'developers' | 'designers' | 'founders'
 
 export default function PeoplePage() {
   const supabase = createClient()
@@ -42,6 +42,7 @@ export default function PeoplePage() {
   const filteredPeople = (people ?? []).filter(p => {
     if (filter === 'developers') return p.type === 'developer'
     if (filter === 'designers') return p.type === 'designer'
+    if (filter === 'founders') return p.type === 'founder'
     return true
   })
 
@@ -64,7 +65,7 @@ export default function PeoplePage() {
 
       {/* Filters */}
       <div className="flex gap-1.5">
-        {(['all', 'developers', 'designers'] as FilterType[]).map(f => (
+        {(['all', 'developers', 'designers', 'founders'] as FilterType[]).map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}

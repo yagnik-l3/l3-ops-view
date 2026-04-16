@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -34,8 +34,21 @@ export default function ProjectsPage() {
 
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [newProject, setNewProject] = useState({
-    name: '', client_name: '', sales_value: '', target_end_date: '', estimated_weeks: '',
+    name: '', client_name: '', sales_value: '', start_date: '', target_end_date: '', estimated_weeks: '',
   })
+
+  // Auto-calculate estimated_weeks from start + target end dates
+  useEffect(() => {
+    const start = newProject.start_date
+    const end = newProject.target_end_date
+    if (!start || !end) return
+    const [sy, sm, sd] = start.split('-').map(Number)
+    const [ey, em, ed] = end.split('-').map(Number)
+    if (!sy || !sm || !sd || !ey || !em || !ed) return
+    const diffDays = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000)
+    const weeks = diffDays > 0 ? Math.max(1, Math.round(diffDays / 7)) : 0
+    if (weeks > 0) setNewProject(p => ({ ...p, estimated_weeks: String(weeks) }))
+  }, [newProject.start_date, newProject.target_end_date])
 
   function setParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString())
@@ -74,6 +87,7 @@ export default function ProjectsPage() {
         name: newProject.name,
         client_name: newProject.client_name,
         sales_value: parseFloat(newProject.sales_value) || 0,
+        start_date: newProject.start_date || null,
         target_end_date: newProject.target_end_date || null,
         estimated_weeks: parseInt(newProject.estimated_weeks) || null,
         status: 'pipeline',
@@ -85,7 +99,7 @@ export default function ProjectsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowAddDialog(false)
-      setNewProject({ name: '', client_name: '', sales_value: '', target_end_date: '', estimated_weeks: '' })
+      setNewProject({ name: '', client_name: '', sales_value: '', start_date: '', target_end_date: '', estimated_weeks: '' })
       if (data?.id) router.push(`/projects/${data.id}`)
     },
   })
@@ -234,14 +248,25 @@ export default function ProjectsPage() {
                   />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-[#8b949e] block mb-1.5">Target end date</label>
-                <input
-                  type="date"
-                  className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
-                  value={newProject.target_end_date}
-                  onChange={e => setNewProject(p => ({ ...p, target_end_date: e.target.value }))}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[#8b949e] block mb-1.5">Start date</label>
+                  <input
+                    type="date"
+                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                    value={newProject.start_date}
+                    onChange={e => setNewProject(p => ({ ...p, start_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[#8b949e] block mb-1.5">Target end date</label>
+                  <input
+                    type="date"
+                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                    value={newProject.target_end_date}
+                    onChange={e => setNewProject(p => ({ ...p, target_end_date: e.target.value }))}
+                  />
+                </div>
               </div>
             </div>
             <div className="flex gap-2 px-5 pb-5">

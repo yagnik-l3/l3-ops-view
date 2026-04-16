@@ -243,7 +243,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      person_type: "developer" | "designer" | "other"
+      person_type: "developer" | "designer" | "other" | "founder"
       project_status:
       | "pipeline"
       | "active"
