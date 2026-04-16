@@ -23,6 +23,8 @@
     ]
   },
   "enabledMcpjsonServers": [
-    "supabase"
-  ]
+    "supabase",
+    "code-review-graph"
+  ],
+  "enableAllProjectMcpServers": true
 }

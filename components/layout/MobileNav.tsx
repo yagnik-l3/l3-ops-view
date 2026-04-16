@@ -3,12 +3,13 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { CalendarRange, Folder, Users, Settings } from 'lucide-react'
+import { CalendarRange, Folder, Users, Settings, BarChart2 } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/timeline', label: 'Timeline', icon: CalendarRange },
   { href: '/projects', label: 'Projects', icon: Folder },
   { href: '/people',   label: 'People',   icon: Users },
+  { href: '/finance',  label: 'Finance',  icon: BarChart2 },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
