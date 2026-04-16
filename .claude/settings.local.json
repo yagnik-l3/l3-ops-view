@@ -17,7 +17,9 @@
       "mcp__supabase__apply_migration",
       "Bash(ls g:/utility-apps/lll-view/app/people/[id]/)",
       "Bash(ls g:/utility-apps/lll-view/app/projects/[id]/)",
-      "mcp__code-review-graph__build_or_update_graph_tool"
+      "mcp__code-review-graph__build_or_update_graph_tool",
+      "mcp__code-review-graph__get_architecture_overview_tool",
+      "mcp__code-review-graph__semantic_search_nodes_tool"
     ]
   },
   "enabledMcpjsonServers": [

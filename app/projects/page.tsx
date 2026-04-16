@@ -1,35 +1,53 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ProjectCard } from '@/components/projects/ProjectCard'
+import { ProjectListRow } from '@/components/projects/ProjectListRow'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Plus, X, Search } from 'lucide-react'
+import type { Project, ProjectStatus } from '@/lib/supabase/types'
 
 const PALETTE = [
   '#1d9e75', '#378add', '#8b5cf6', '#ef9f27', '#ec4899',
   '#06b6d4', '#f97316', '#d4537e', '#84cc16', '#a855f7', '#14b8a6', '#e24b4a',
 ]
-import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, X } from 'lucide-react'
-import type { Project, ProjectStatus } from '@/lib/supabase/types'
 
-const COLUMNS: { status: ProjectStatus; label: string }[] = [
-  { status: 'pipeline',  label: 'Pipeline' },
-  { status: 'active',    label: 'Active' },
-  { status: 'on_hold',   label: 'On Hold' },
-  { status: 'paused',    label: 'Paused' },
-  { status: 'completed', label: 'Completed' },
+const STATUS_OPTIONS: { value: ProjectStatus | 'all'; label: string }[] = [
+  { value: 'all',           label: 'All' },
+  { value: 'pipeline',      label: 'Pipeline' },
+  { value: 'active',        label: 'Active' },
+  { value: 'in_production', label: 'In Production' },
+  { value: 'on_hold',       label: 'On Hold' },
+  { value: 'paused',        label: 'Paused' },
+  { value: 'completed',     label: 'Completed' },
 ]
 
 export default function ProjectsPage() {
   const supabase = createClient()
   const queryClient = useQueryClient()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const statusFilter = (searchParams.get('status') ?? 'all') as ProjectStatus | 'all'
+  const searchFilter = searchParams.get('search') ?? ''
+
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [newProject, setNewProject] = useState({
     name: '', client_name: '', sales_value: '', target_end_date: '', estimated_weeks: '',
   })
+
+  function setParam(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (!value || value === 'all') {
+      params.delete(key)
+    } else {
+      params.set(key, value)
+    }
+    router.replace(`${pathname}?${params.toString()}`)
+  }
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -40,6 +58,16 @@ export default function ProjectsPage() {
       return data as Project[]
     },
   })
+
+  const filtered = useMemo(() => {
+    if (!projects) return []
+    return projects.filter(p => {
+      const matchStatus = statusFilter === 'all' || p.status === statusFilter
+      const q = searchFilter.toLowerCase()
+      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.client_name.toLowerCase().includes(q)
+      return matchStatus && matchSearch
+    })
+  }, [projects, statusFilter, searchFilter])
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -65,12 +93,14 @@ export default function ProjectsPage() {
   })
 
   return (
-    <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
+    <div className="p-6 space-y-5 min-h-screen bg-[#0d1117]">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-[#e6edf3]">Projects</h1>
-          <p className="text-sm text-[#8b949e] mt-0.5">All projects by stage</p>
+          <p className="text-sm text-[#8b949e] mt-0.5">
+            {isLoading ? '…' : `${filtered.length} of ${projects?.length ?? 0} projects`}
+          </p>
         </div>
         <button
           onClick={() => setShowAddDialog(true)}
@@ -81,46 +111,74 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {/* Kanban board */}
-      {isLoading ? (
-        <div className="flex gap-5 overflow-x-auto pb-4">
-          {COLUMNS.map(col => (
-            <div key={col.status} className="shrink-0 w-72 space-y-3">
-              <Skeleton className="h-4 w-20 bg-[#21262d]" />
-              {[1, 2].map(i => <Skeleton key={i} className="h-28 w-full rounded-lg bg-[#161b22]" />)}
-            </div>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Search */}
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#6e7681]" />
+          <input
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-[#30363d] rounded-lg bg-[#161b22] text-[#e6edf3] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] transition-colors"
+            placeholder="Search by name or client…"
+            value={searchFilter}
+            onChange={e => setParam('search', e.target.value)}
+          />
+        </div>
+
+        {/* Status pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {STATUS_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setParam('status', opt.value)}
+              className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                statusFilter === opt.value
+                  ? 'bg-[#388bfd]/20 text-[#58a6ff] border border-[#388bfd]/40'
+                  : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
+              }`}
+            >
+              {opt.label}
+            </button>
           ))}
         </div>
+      </div>
+
+      {/* List */}
+      {isLoading ? (
+        <div className="space-y-2.5">
+          {[1, 2, 3, 4].map(i => (
+            <Skeleton key={i} className="h-24 w-full rounded-lg bg-[#161b22]" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-[#30363d] py-16 text-center">
+          <p className="text-sm text-[#6e7681]">No projects match your filters</p>
+          {(statusFilter !== 'all' || searchFilter) && (
+            <button
+              onClick={() => router.replace(pathname)}
+              className="mt-2 text-xs text-[#58a6ff] hover:underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="flex gap-5 overflow-x-auto pb-4">
-          {COLUMNS.map(col => {
-            const colProjects = (projects ?? []).filter(p => p.status === col.status)
-            return (
-              <div key={col.status} className="shrink-0 w-72 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-[#8b949e]">{col.label}</span>
-                  <span className="text-xs bg-[#21262d] text-[#6e7681] px-1.5 py-0.5 rounded-md">
-                    {colProjects.length}
-                  </span>
-                </div>
-                <div className="space-y-2.5 min-h-20">
-                  {colProjects.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-[#30363d] py-8 text-center">
-                      <p className="text-xs text-[#3d444d]">No projects here</p>
-                    </div>
-                  ) : (
-                    colProjects.map(project => (
-                      <ProjectCard
-                        key={project.id}
-                        project={project}
-                        onClick={() => router.push(`/projects/${project.id}`)}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            )
-          })}
+        <div className="space-y-1.5">
+          {/* Column headers */}
+          <div className="hidden md:flex items-center gap-4 px-4 pb-1 text-[11px] font-medium text-[#3d444d] uppercase tracking-wide select-none">
+            <span className="flex-1">Project / Client</span>
+            <span className="w-36 shrink-0">Timeline</span>
+            <span className="hidden lg:block w-28 shrink-0">Progress</span>
+            <span className="shrink-0 w-20">Status</span>
+            <span className="hidden sm:block w-24 shrink-0 text-right">Value</span>
+            <span className="w-24 shrink-0 text-right">Deadline</span>
+          </div>
+          {filtered.map(project => (
+            <ProjectListRow
+              key={project.id}
+              project={project}
+              onClick={() => router.push(`/projects/${project.id}`)}
+            />
+          ))}
         </div>
       )}
 

@@ -33,7 +33,14 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Allow auth routes through
+  // Redirect authenticated users away from auth pages
+  if (user && pathname.startsWith('/auth')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/timeline'
+    return NextResponse.redirect(url)
+  }
+
+  // Allow unauthenticated access to auth routes
   if (pathname.startsWith('/auth')) {
     return supabaseResponse
   }
