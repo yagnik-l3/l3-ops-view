@@ -11,6 +11,7 @@ import {
   Settings,
   LogOut,
   BarChart2,
+  Target,
 } from 'lucide-react'
 import type { UserProfile } from '@/lib/supabase/types'
 
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { href: '/timeline',  label: 'Timeline',   icon: CalendarRange },
   { href: '/projects',  label: 'Projects',   icon: Folder },
   { href: '/people',    label: 'People',     icon: Users },
+  { href: '/leads',     label: 'Leads',      icon: Target },
   { href: '/finance',   label: 'Finance',    icon: BarChart2 },
   { href: '/settings',  label: 'Settings',   icon: Settings },
 ]

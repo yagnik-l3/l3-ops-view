@@ -172,6 +172,69 @@ export type Database = {
         }
         Relationships: []
       }
+      leads: {
+        Row: {
+          id: number
+          date_of_first_approach: string
+          client_name: string | null
+          company_name: string | null
+          contact_detail: string | null
+          connect_via: Database["public"]["Enums"]["connect_via"]
+          requirement: string | null
+          source: Database["public"]["Enums"]["lead_source"]
+          mediator: string | null
+          poc: string | null
+          quotation_amount: number | null
+          status: Database["public"]["Enums"]["lead_status"]
+          remark: string | null
+          last_contacted_at: string | null
+          converted_amount: number | null
+          converted_date: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: number
+          date_of_first_approach?: string
+          client_name?: string | null
+          company_name?: string | null
+          contact_detail?: string | null
+          connect_via: Database["public"]["Enums"]["connect_via"]
+          requirement?: string | null
+          source: Database["public"]["Enums"]["lead_source"]
+          mediator?: string | null
+          poc?: string | null
+          quotation_amount?: number | null
+          status?: Database["public"]["Enums"]["lead_status"]
+          remark?: string | null
+          last_contacted_at?: string | null
+          converted_amount?: number | null
+          converted_date?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: number
+          date_of_first_approach?: string
+          client_name?: string | null
+          company_name?: string | null
+          contact_detail?: string | null
+          connect_via?: Database["public"]["Enums"]["connect_via"]
+          requirement?: string | null
+          source?: Database["public"]["Enums"]["lead_source"]
+          mediator?: string | null
+          poc?: string | null
+          quotation_amount?: number | null
+          status?: Database["public"]["Enums"]["lead_status"]
+          remark?: string | null
+          last_contacted_at?: string | null
+          converted_amount?: number | null
+          converted_date?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -188,6 +251,15 @@ export type Database = {
       | "completed"
       | "on_hold"
       | "paused"
+      connect_via: "whatsapp" | "facebook" | "linkedin" | "email" | "call"
+      lead_source: "linkedin" | "relation" | "scouting" | "pa" | "inbound"
+      lead_status:
+      | "initial_call"
+      | "gave_quote"
+      | "done"
+      | "not_interested"
+      | "interested"
+      | "not_converted"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -199,6 +271,9 @@ export type Database = {
 
 export type ProjectStatus = Database["public"]["Enums"]["project_status"]
 export type PersonType = Database["public"]["Enums"]["person_type"]
+export type ConnectVia = Database["public"]["Enums"]["connect_via"]
+export type LeadSource = Database["public"]["Enums"]["lead_source"]
+export type LeadStatus = Database["public"]["Enums"]["lead_status"]
 export type DealStatus = Database["public"]["Enums"]
 export type UserRole = "sales" | "production"
 
@@ -212,6 +287,9 @@ export type SalesTarget = Database["public"]["Tables"]
 export type Deal = Database["public"]["Tables"]
 export type DealInsert = Database["public"]["Tables"]
 export type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"]
+export type Lead = Database["public"]["Tables"]["leads"]["Row"]
+export type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"]
+export type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"]
 
 // Extended join types
 export type AllocationWithProject = Allocation & { projects: Project }

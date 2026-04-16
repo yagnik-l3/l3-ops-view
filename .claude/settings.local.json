@@ -19,12 +19,13 @@
       "Bash(ls g:/utility-apps/lll-view/app/projects/[id]/)",
       "mcp__code-review-graph__build_or_update_graph_tool",
       "mcp__code-review-graph__get_architecture_overview_tool",
-      "mcp__code-review-graph__semantic_search_nodes_tool"
+      "mcp__code-review-graph__semantic_search_nodes_tool",
+      "mcp__supabase__execute_sql"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase",
     "code-review-graph"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
