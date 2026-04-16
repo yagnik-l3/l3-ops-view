@@ -1,20 +1,18 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate, daysRemaining } from '@/lib/utils/date'
-import { formatINR } from '@/lib/utils/currency'
-import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 import type { Project, ProjectStatus } from '@/lib/supabase/types'
-import { Plus } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { formatINR } from '@/lib/utils/currency'
+import { daysRemaining } from '@/lib/utils/date'
+import { useQuery } from '@tanstack/react-query'
 
 const BOARD_COLUMNS: { status: ProjectStatus; label: string }[] = [
-  { status: 'pipeline',      label: 'Pipeline' },
-  { status: 'active',        label: 'Active' },
+  { status: 'pipeline', label: 'Pipeline' },
+  { status: 'active', label: 'Active' },
   { status: 'in_production', label: 'In Production' },
-  { status: 'on_hold',       label: 'On Hold' },
+  { status: 'on_hold', label: 'On Hold' },
 ]
 
 interface ProjectBoardProps {

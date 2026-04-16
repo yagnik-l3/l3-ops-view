@@ -1,25 +1,23 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { formatDate, daysRemaining } from '@/lib/utils/date'
-import { formatINR } from '@/lib/utils/currency'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { createClient } from '@/lib/supabase/client'
+import type { Allocation, Person, Project, ProjectStatus } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
-import type { Project, Allocation, Person, ProjectStatus } from '@/lib/supabase/types'
-import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
-import { format, addWeeks } from 'date-fns'
+import { formatINR } from '@/lib/utils/currency'
+import { daysRemaining, formatDate } from '@/lib/utils/date'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { addWeeks, format } from 'date-fns'
+import { Plus, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 const ALL_STATUSES: { value: ProjectStatus; label: string; color: string }[] = [
-  { value: 'pipeline',      label: 'Pipeline',      color: 'text-zinc-600' },
-  { value: 'active',        label: 'Active',        color: 'text-[#1D9E75]' },
-  { value: 'in_production', label: 'In Production', color: 'text-[#378ADD]' },
-  { value: 'on_hold',       label: 'On Hold',       color: 'text-[#D4537E]' },
-  { value: 'paused',        label: 'Paused',        color: 'text-[#EF9F27]' },
-  { value: 'completed',     label: 'Completed',     color: 'text-zinc-400' },
+  { value: 'pipeline', label: 'Pipeline', color: 'text-zinc-600' },
+  { value: 'active', label: 'Active', color: 'text-[#1D9E75]' },
+  { value: 'on_hold', label: 'On Hold', color: 'text-[#D4537E]' },
+  { value: 'completed', label: 'Completed', color: 'text-zinc-400' },
 ]
 
 const STATUS_NEEDS_START: ProjectStatus[] = ['active', 'in_production']
@@ -374,7 +372,7 @@ export function ProjectDetail({ project, open, onClose }: ProjectDetailProps) {
             {/* Allocation list */}
             {loadingAllocs ? (
               <div className="space-y-2">
-                {[1,2].map(i => <div key={i} className="h-10 bg-zinc-100 rounded animate-pulse" />)}
+                {[1, 2].map(i => <div key={i} className="h-10 bg-zinc-100 rounded animate-pulse" />)}
               </div>
             ) : (allocations ?? []).length === 0 ? (
               <p className="text-sm text-zinc-300 py-2">No one assigned yet.</p>

@@ -7,12 +7,10 @@ import type { Project } from '@/lib/supabase/types'
 import { AlertTriangle, CalendarDays, Clock } from 'lucide-react'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  pipeline:      { label: 'Pipeline',      color: '#6e7681', bg: '#6e768120' },
-  active:        { label: 'Active',        color: '#1d9e75', bg: '#1d9e7520' },
-  in_production: { label: 'In Production', color: '#378add', bg: '#378add20' },
-  on_hold:       { label: 'On Hold',       color: '#d4537e', bg: '#d4537e20' },
-  paused:        { label: 'Paused',        color: '#ef9f27', bg: '#ef9f2720' },
-  completed:     { label: 'Completed',     color: '#3d444d', bg: '#3d444d40' },
+  pipeline: { label: 'Pipeline', color: '#6e7681', bg: '#6e768120' },
+  active: { label: 'Active', color: '#1d9e75', bg: '#1d9e7520' },
+  on_hold: { label: 'On Hold', color: '#d4537e', bg: '#d4537e20' },
+  completed: { label: 'Completed', color: '#3d444d', bg: '#3d444d40' },
 }
 
 interface ProjectListRowProps {
@@ -23,13 +21,13 @@ interface ProjectListRowProps {
 export function ProjectListRow({ project, onClick }: ProjectListRowProps) {
   const days = daysRemaining(project.target_end_date)
   const isOverdue = days !== null && days < 0
-  const isAtRisk  = days !== null && days >= 0 && days <= 7
-  const status    = STATUS_CONFIG[project.status] ?? STATUS_CONFIG.pipeline
-  const accent    = project.color ?? status.color
+  const isAtRisk = days !== null && days >= 0 && days <= 7
+  const status = STATUS_CONFIG[project.status] ?? STATUS_CONFIG.pipeline
+  const accent = project.color ?? status.color
 
   let progress: number | null = null
   if (project.start_date && project.estimated_weeks) {
-    const start   = new Date(project.start_date)
+    const start = new Date(project.start_date)
     const elapsed = (Date.now() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)
     progress = Math.min(100, Math.round((elapsed / project.estimated_weeks) * 100))
   }

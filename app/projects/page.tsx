@@ -15,13 +15,11 @@ const PALETTE = [
 ]
 
 const STATUS_OPTIONS: { value: ProjectStatus | 'all'; label: string }[] = [
-  { value: 'all',           label: 'All' },
-  { value: 'pipeline',      label: 'Pipeline' },
-  { value: 'active',        label: 'Active' },
-  { value: 'in_production', label: 'In Production' },
-  { value: 'on_hold',       label: 'On Hold' },
-  { value: 'paused',        label: 'Paused' },
-  { value: 'completed',     label: 'Completed' },
+  { value: 'all', label: 'All' },
+  { value: 'pipeline', label: 'Pipeline' },
+  { value: 'active', label: 'Active' },
+  { value: 'on_hold', label: 'On Hold' },
+  { value: 'completed', label: 'Completed' },
 ]
 
 export default function ProjectsPage() {
@@ -130,11 +128,10 @@ export default function ProjectsPage() {
             <button
               key={opt.value}
               onClick={() => setParam('status', opt.value)}
-              className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
-                statusFilter === opt.value
+              className={`px-2.5 py-1 rounded-md text-xs transition-colors ${statusFilter === opt.value
                   ? 'bg-[#388bfd]/20 text-[#58a6ff] border border-[#388bfd]/40'
                   : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border border-transparent'
-              }`}
+                }`}
             >
               {opt.label}
             </button>

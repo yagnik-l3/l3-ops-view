@@ -35,7 +35,7 @@ function getMonthBounds(year: number, month: number): [string, string] {
 
 function calendarDaysOverlap(s1: string, e1: string, s2: string, e2: string): number {
   const start = Math.max(Date.parse(s1 + 'T00:00:00'), Date.parse(s2 + 'T00:00:00'))
-  const end   = Math.min(Date.parse(e1 + 'T00:00:00'), Date.parse(e2 + 'T00:00:00'))
+  const end = Math.min(Date.parse(e1 + 'T00:00:00'), Date.parse(e2 + 'T00:00:00'))
   return Math.max(0, Math.round((end - start) / 86400000) + 1)
 }
 
@@ -73,7 +73,7 @@ function projectRevenueInMonth(p: Project, year: number, month: number): number 
   const effectiveEnd = projectEffectiveEnd(p)
   if (!effectiveEnd) return 0
   const [monthStart, monthEnd] = getMonthBounds(year, month)
-  const totalDays   = calendarDays(p.start_date, effectiveEnd)
+  const totalDays = calendarDays(p.start_date, effectiveEnd)
   const overlapDays = calendarDaysOverlap(p.start_date, effectiveEnd, monthStart, monthEnd)
   return Math.round((p.sales_value * overlapDays) / totalDays)
 }
@@ -87,7 +87,7 @@ function allocationCostInMonth(
   if (!monthlySalary) return 0
   const [monthStart, monthEnd] = getMonthBounds(year, month)
   const start = alloc.start_date > monthStart ? alloc.start_date : monthStart
-  const end   = alloc.end_date   < monthEnd   ? alloc.end_date   : monthEnd
+  const end = alloc.end_date < monthEnd ? alloc.end_date : monthEnd
   if (start > end) return 0
   return allocationSalaryCost(start, end, alloc.capacity_percent, monthlySalary) ?? 0
 }
@@ -131,22 +131,22 @@ function computeMonthMetrics(
     return { project: p, revenue, devCost, margin: revenue - devCost }
   })
 
-  const totalRevenue       = projectRows.reduce((s, r) => s + r.revenue, 0)
+  const totalRevenue = projectRows.reduce((s, r) => s + r.revenue, 0)
   const totalAllocatedCost = monthAllocs.reduce(
     (sum, a) => sum + allocationCostInMonth(a, a.people?.monthly_salary, year, month), 0,
   )
-  const benchCost  = Math.max(0, totalSalary - totalAllocatedCost)
-  const netProfit  = totalRevenue - totalSalary
-  const marginPct  = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+  const benchCost = Math.max(0, totalSalary - totalAllocatedCost)
+  const netProfit = totalRevenue - totalSalary
+  const marginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
 
   const personRows = people.map(person => {
-    const personAllocs  = monthAllocs.filter(a => a.person_id === person.id)
+    const personAllocs = monthAllocs.filter(a => a.person_id === person.id)
     const allocatedCost = personAllocs.reduce(
       (sum, a) => sum + allocationCostInMonth(a, person.monthly_salary, year, month), 0,
     )
-    const salary       = person.monthly_salary ?? 0
-    const bench        = Math.max(0, salary - allocatedCost)
-    const utilPct      = salary > 0 ? Math.min(100, Math.round((allocatedCost / salary) * 100)) : 0
+    const salary = person.monthly_salary ?? 0
+    const bench = Math.max(0, salary - allocatedCost)
+    const utilPct = salary > 0 ? Math.min(100, Math.round((allocatedCost / salary) * 100)) : 0
     const projectNames = [...new Set(
       personAllocs.map(a => a.projects?.name).filter(Boolean) as string[],
     )]
@@ -159,14 +159,14 @@ function computeMonthMetrics(
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinancePage() {
-  const router       = useRouter()
-  const pathname     = usePathname()
+  const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
-  const supabase     = createClient()
+  const supabase = createClient()
 
   // Month from URL (?month=2025-04)
   const [year, month] = useMemo<[number, number]>(() => {
-    const raw  = searchParams.get('month') ?? ''
+    const raw = searchParams.get('month') ?? ''
     const [y, m] = raw.split('-').map(Number)
     if (y > 2000 && m >= 1 && m <= 12) return [y, m]
     const now = new Date()
@@ -214,7 +214,7 @@ export default function FinancePage() {
   })
 
   const isLoading = loadingPeople || loadingProjects || loadingAllocations
-  const hasData   = !!(people && projects && allocations)
+  const hasData = !!(people && projects && allocations)
 
   // Current month metrics
   const metrics = useMemo(
@@ -228,7 +228,7 @@ export default function FinancePage() {
     let [y, m]: [number, number] = [year, month]
     for (let i = 0; i < 6; i++) {
       result.unshift([y, m])
-      ;[y, m] = prevMonthOf(y, m)
+        ;[y, m] = prevMonthOf(y, m)
     }
     return result
   }, [year, month])
@@ -248,7 +248,7 @@ export default function FinancePage() {
 
   const [prevY, prevM] = prevMonthOf(year, month)
   const [nextY, nextM] = nextMonthOf(year, month)
-  const now            = new Date()
+  const now = new Date()
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ export default function FinancePage() {
           <Skeleton className="h-8 w-44 bg-[#21262d]" />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[1,2,3,4].map(i => <Skeleton key={i} className="h-24 rounded-lg bg-[#161b22]" />)}
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 rounded-lg bg-[#161b22]" />)}
         </div>
         <Skeleton className="h-64 rounded-lg bg-[#161b22]" />
         <Skeleton className="h-48 rounded-lg bg-[#161b22]" />
@@ -273,7 +273,7 @@ export default function FinancePage() {
 
   const m_ = metrics!
   const stretchedProjects = m_.projectRows.filter(r => isStretched(r.project))
-  const benchEmployees    = m_.personRows.filter(r => r.utilPct < 20 && r.salary > 0)
+  const benchEmployees = m_.personRows.filter(r => r.utilPct < 20 && r.salary > 0)
 
   return (
     <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
@@ -408,7 +408,7 @@ export default function FinancePage() {
                   .sort((a, b) => b.revenue - a.revenue)
                   .map(({ project: p, revenue, devCost, margin }, i) => {
                     const stretched = isStretched(p)
-                    const mPct      = revenue > 0 ? Math.round((margin / revenue) * 100) : null
+                    const mPct = revenue > 0 ? Math.round((margin / revenue) * 100) : null
                     return (
                       <tr
                         key={p.id}
@@ -605,8 +605,8 @@ export default function FinancePage() {
 
         <div className="flex items-end gap-2">
           {trendData.map(d => {
-            const revH  = trendMax > 0 ? Math.max(0, Math.round((d.totalRevenue / trendMax) * 88)) : 0
-            const expH  = trendMax > 0 ? Math.max(0, Math.round((d.totalSalary  / trendMax) * 88)) : 0
+            const revH = trendMax > 0 ? Math.max(0, Math.round((d.totalRevenue / trendMax) * 88)) : 0
+            const expH = trendMax > 0 ? Math.max(0, Math.round((d.totalSalary / trendMax) * 88)) : 0
             const isSel = d.year === year && d.month === month
 
             return (
@@ -705,9 +705,9 @@ interface KpiCardProps {
 function KpiCard({ label, value, sub, accent = 'default', icon: Icon }: KpiCardProps) {
   const colorMap = {
     default: 'text-[#e6edf3]',
-    green:   'text-[#1D9E75]',
-    amber:   'text-[#EF9F27]',
-    red:     'text-[#E24B4A]',
+    green: 'text-[#1D9E75]',
+    amber: 'text-[#EF9F27]',
+    red: 'text-[#E24B4A]',
   }
   return (
     <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5">
@@ -724,12 +724,10 @@ function KpiCard({ label, value, sub, accent = 'default', icon: Icon }: KpiCardP
 }
 
 const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = {
-  active:        { bg: 'bg-[#1D9E75]/15', text: 'text-[#1D9E75]',   label: 'Active' },
-  in_production: { bg: 'bg-[#378ADD]/15', text: 'text-[#378ADD]',   label: 'In Production' },
-  completed:     { bg: 'bg-[#484f58]/40', text: 'text-[#8b949e]',   label: 'Completed' },
-  pipeline:      { bg: 'bg-[#484f58]/20', text: 'text-[#6e7681]',   label: 'Pipeline' },
-  on_hold:       { bg: 'bg-[#D4537E]/15', text: 'text-[#D4537E]',   label: 'On Hold' },
-  paused:        { bg: 'bg-[#484f58]/20', text: 'text-[#6e7681]',   label: 'Paused' },
+  active: { bg: 'bg-[#1D9E75]/15', text: 'text-[#1D9E75]', label: 'Active' },
+  completed: { bg: 'bg-[#484f58]/40', text: 'text-[#8b949e]', label: 'Completed' },
+  pipeline: { bg: 'bg-[#484f58]/20', text: 'text-[#6e7681]', label: 'Pipeline' },
+  on_hold: { bg: 'bg-[#D4537E]/15', text: 'text-[#D4537E]', label: 'On Hold' },
 }
 
 function StatusBadge({ status }: { status: string }) {
