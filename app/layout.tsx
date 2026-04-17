@@ -36,7 +36,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className={`${geist.variable} h-full antialiased dark`}>
-      <body className="h-full bg-[#0d1117] text-[#e6edf3]">
+      <body className="h-full bg-[#0d1117] text-[#e6edf3]" suppressHydrationWarning>
         <QueryProvider>
           <TooltipProvider>
             {user ? (

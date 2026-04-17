@@ -1,10 +1,13 @@
 'use client'
 
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { formatShortDate, daysRemaining } from '@/lib/utils/date'
 import { formatINR } from '@/lib/utils/currency'
 import type { Project } from '@/lib/supabase/types'
 import { AlertTriangle, CalendarDays, Clock } from 'lucide-react'
+
+const NOW = Date.now()
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   pipeline: { label: 'Pipeline', color: '#6e7681', bg: '#6e768120' },
@@ -25,12 +28,17 @@ export function ProjectListRow({ project, onClick }: ProjectListRowProps) {
   const status = STATUS_CONFIG[project.status] ?? STATUS_CONFIG.pipeline
   const accent = project.color ?? status.color
 
-  let progress: number | null = null
-  if (project.start_date && project.estimated_weeks) {
-    const start = new Date(project.start_date)
-    const elapsed = (Date.now() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)
-    progress = Math.min(100, Math.round((elapsed / project.estimated_weeks) * 100))
-  }
+  const progress = useMemo(() => {
+    let progressValue: number | null = null
+    if (project.start_date && project.target_end_date && NOW >= new Date(project.start_date).getTime()) {
+      const start = new Date(project.start_date)
+      const end = new Date(project.target_end_date)
+      const totalWeeks = (end.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)
+      const elapsed = (NOW - start.getTime()) / (7 * 24 * 60 * 60 * 1000)
+      progressValue = Math.min(100, Math.round((elapsed / totalWeeks) * 100))
+    }
+    return progressValue
+  }, [project.start_date, project.target_end_date])
 
   return (
     <div
@@ -107,7 +115,7 @@ export function ProjectListRow({ project, onClick }: ProjectListRowProps) {
       </div>
 
       {/* ── Status badge ─────────────────────────────────── */}
-      <div className="shrink-0">
+      <div className="shrink-0 w-20">
         <span
           className="inline-block text-[11px] font-medium px-2 py-0.5 rounded"
           style={{ color: status.color, background: status.bg }}
