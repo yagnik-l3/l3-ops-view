@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useLayoutEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -81,7 +81,6 @@ interface Props {
 
 export function ResourceTimeline({ weeks, filter }: Props) {
   const supabase = createClient()
-  const qc       = useQueryClient()
   const router   = useRouter()
 
   // ── Container width for dynamic column sizing ──────────────
@@ -151,7 +150,11 @@ export function ResourceTimeline({ weeks, filter }: Props) {
   const { data: people, isLoading: loadPeople } = useQuery({
     queryKey: ['people'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('people').select('*').eq('is_active', true).order('name')
+      const { data, error } = await supabase
+        .from('people')
+        .select('id, name, role, type, is_active, avatar_initials, avatar_color, default_hourly_rate')
+        .eq('is_active', true)
+        .order('name')
       if (error) throw error
       return data as Person[]
     },
@@ -160,28 +163,16 @@ export function ResourceTimeline({ weeks, filter }: Props) {
   const { data: allocations, isLoading: loadAllocs } = useQuery({
     queryKey: ['allocations'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('allocations').select('*, projects(*)')
+      const { data, error } = await supabase
+        .from('allocations')
+        .select('id, person_id, project_id, start_date, end_date, capacity_percent, hourly_rate, projects(id, name, client_name, color, status)')
       if (error) throw error
       return data as (Allocation & { projects: Project })[]
     },
   })
 
-  useEffect(() => {
-    const ch = supabase.channel('timeline-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'allocations' }, () => {
-        qc.invalidateQueries({ queryKey: ['allocations'] })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
-        qc.invalidateQueries({ queryKey: ['allocations'] })
-        qc.invalidateQueries({ queryKey: ['projects'] })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'people' }, () => {
-        qc.invalidateQueries({ queryKey: ['people'] })
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-  }, [supabase, qc])
-
+  // Cross-user updates rely on TanStack Query refetchOnWindowFocus rather than
+  // a realtime channel — keeps us inside the Supabase free-tier message budget.
   const allActive = people ?? []
 
   function filterGroup(list: Person[]): Person[] {

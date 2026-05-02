@@ -135,10 +135,15 @@ export default function SettingsPage() {
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.auth.admin.inviteUserByEmail(inviteForm.email, {
-        data: { full_name: inviteForm.full_name },
+      const res = await fetch('/api/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteForm.email, full_name: inviteForm.full_name }),
       })
-      if (error) throw error
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Invite failed (${res.status})`)
+      }
     },
     onSuccess: () => {
       setInviteSuccess(true)
