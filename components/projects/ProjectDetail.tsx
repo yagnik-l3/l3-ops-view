@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Allocation, Person, Project, ProjectStatus } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
 import { formatINR } from '@/lib/utils/currency'
-import { daysRemaining, formatDate } from '@/lib/utils/date'
+import { projectDaysRemaining, formatDate } from '@/lib/utils/date'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addWeeks, format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
@@ -18,6 +18,7 @@ const ALL_STATUSES: { value: ProjectStatus; label: string; color: string }[] = [
   { value: 'active', label: 'Active', color: 'text-[#1D9E75]' },
   { value: 'on_hold', label: 'On Hold', color: 'text-[#D4537E]' },
   { value: 'completed', label: 'Completed', color: 'text-zinc-400' },
+  { value: 'lost', label: 'Lost', color: 'text-[#E24B4A]' },
 ]
 
 const STATUS_NEEDS_START: ProjectStatus[] = ['active', 'in_production']
@@ -120,12 +121,14 @@ export function ProjectDetail({ project, open, onClose }: ProjectDetailProps) {
 
   const addAllocMutation = useMutation({
     mutationFn: async () => {
+      const person = (people ?? []).find(p => p.id === allocForm.person_id)
       const { error } = await supabase.from('allocations').insert({
         person_id: allocForm.person_id,
         project_id: project!.id,
         start_date: allocForm.start_date,
         end_date: allocForm.end_date,
         capacity_percent: allocForm.capacity_percent,
+        monthly_salary: person?.monthly_salary ?? null,
         notes: allocForm.notes || null,
       })
       if (error) throw error
@@ -151,7 +154,7 @@ export function ProjectDetail({ project, open, onClose }: ProjectDetailProps) {
 
   if (!project) return null
 
-  const days = daysRemaining(project.target_end_date)
+  const days = projectDaysRemaining(project)
   const isOverdue = days !== null && days < 0
   const currentStatus = form.status ?? project.status
   const needsStartDate = STATUS_NEEDS_START.includes(currentStatus as ProjectStatus)

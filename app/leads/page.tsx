@@ -160,9 +160,20 @@ export default function LeadsPage() {
   const dateFrom         = searchParams.get('date_from')  ?? ''
   const dateTo           = searchParams.get('date_to')    ?? ''
   const searchFilter     = searchParams.get('search')     ?? ''
-  // Sales KPI date range (separate from table filters)
-  const convFrom         = searchParams.get('conv_from')  ?? ''
-  const convTo           = searchParams.get('conv_to')    ?? ''
+
+  // Default period = current calendar month. Drives both the table filter
+  // (date_of_first_approach) and the KPI sales aggregate (converted_date).
+  const { monthStart, monthEnd } = useMemo(() => {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth(), 1)
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return { monthStart: fmt(start), monthEnd: fmt(end) }
+  }, [])
+
+  const effectiveFrom = dateFrom || monthStart
+  const effectiveTo   = dateTo   || monthEnd
 
   function setParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString())
@@ -172,10 +183,7 @@ export default function LeadsPage() {
   }
 
   function clearFilters() {
-    const params = new URLSearchParams()
-    if (convFrom) params.set('conv_from', convFrom)
-    if (convTo)   params.set('conv_to',   convTo)
-    router.replace(`${pathname}${params.size ? '?' + params.toString() : ''}`)
+    router.replace(pathname)
   }
 
   const activeFilter: LeadsFilter = useMemo(() => ({
@@ -183,14 +191,17 @@ export default function LeadsPage() {
     source:      sourceFilter !== 'all' ? sourceFilter : undefined,
     connect_via: connectViaFilter !== 'all' ? connectViaFilter : undefined,
     poc:         pocFilter    || undefined,
-    dateFrom:    dateFrom     || undefined,
-    dateTo:      dateTo       || undefined,
+    dateFrom:    effectiveFrom,
+    dateTo:      effectiveTo,
     search:      searchFilter || undefined,
-  }), [statusFilter, sourceFilter, connectViaFilter, pocFilter, dateFrom, dateTo, searchFilter])
+  }), [statusFilter, sourceFilter, connectViaFilter, pocFilter, effectiveFrom, effectiveTo, searchFilter])
 
+  // "Active" filters are any non-default values. The date range is treated
+  // as default when it equals the current calendar month.
+  const isDefaultPeriod = effectiveFrom === monthStart && effectiveTo === monthEnd
   const hasActiveFilters =
     statusFilter !== 'all' || sourceFilter !== 'all' || connectViaFilter !== 'all' ||
-    !!pocFilter || !!dateFrom || !!dateTo || !!searchFilter
+    !!pocFilter || !isDefaultPeriod || !!searchFilter
 
   // ── Column visibility ──
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(DEFAULT_VISIBLE))
@@ -255,20 +266,18 @@ export default function LeadsPage() {
 
   function closeModal() { setShowAdd(false); setEditLead(null) }
 
-  // ── KPI (sales date range aware) ──
+  // ── KPI — same period as the table ──
   const { data: kpi, isLoading: kpiLoading } = useQuery({
-    queryKey: ['leads_kpi', convFrom, convTo],
-    queryFn:  () => getLeadsKpi(convFrom || undefined, convTo || undefined),
+    queryKey: ['leads_kpi', effectiveFrom, effectiveTo],
+    queryFn:  () => getLeadsKpi(effectiveFrom, effectiveTo),
     staleTime: 30_000,
   })
 
-  // ── Sales period label ──
+  // ── Period label — "This month" if defaulted, else explicit range ──
   const salesPeriodLabel = useMemo(() => {
-    if (!convFrom && !convTo) return 'All time'
-    if (convFrom && convTo)   return `${formatDate(convFrom, 'dd MMM yy')} – ${formatDate(convTo, 'dd MMM yy')}`
-    if (convFrom)             return `From ${formatDate(convFrom, 'dd MMM yy')}`
-    return `Until ${formatDate(convTo!, 'dd MMM yy')}`
-  }, [convFrom, convTo])
+    if (isDefaultPeriod) return `This month · ${formatDate(effectiveFrom, 'dd MMM')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
+    return `${formatDate(effectiveFrom, 'dd MMM yy')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
+  }, [isDefaultPeriod, effectiveFrom, effectiveTo])
 
   // ── Infinite scroll ──
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery({
@@ -395,37 +404,6 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Sales period filter — inline below KPIs */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-[#6e7681]">Sales period:</span>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            className="text-xs border border-[#30363d] rounded-lg px-2.5 py-1.5 bg-[#161b22] text-[#c9d1d9] focus:outline-none focus:border-[#58a6ff]"
-            value={convFrom}
-            onChange={e => setParam('conv_from', e.target.value)}
-          />
-          <span className="text-xs text-[#484f58]">to</span>
-          <input
-            type="date"
-            className="text-xs border border-[#30363d] rounded-lg px-2.5 py-1.5 bg-[#161b22] text-[#c9d1d9] focus:outline-none focus:border-[#58a6ff]"
-            value={convTo}
-            onChange={e => setParam('conv_to', e.target.value)}
-          />
-          {(convFrom || convTo) && (
-            <button
-              onClick={() => { setParam('conv_from', ''); setParam('conv_to', '') }}
-              className="text-xs text-[#6e7681] hover:text-[#e6edf3] flex items-center gap-0.5 transition-colors"
-            >
-              <X className="h-3 w-3" /> Reset
-            </button>
-          )}
-        </div>
-        <span className="text-[11px] text-[#484f58] italic">
-          (filters converted_date on leads with status = Converted)
-        </span>
-      </div>
-
       {/* Table filter bar */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -517,13 +495,38 @@ export default function LeadsPage() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Approach From</label>
-              <input type="date" className="text-sm border border-[#30363d] rounded-lg px-3 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]" value={dateFrom} onChange={e => setParam('date_from', e.target.value)} />
+              <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Period from</label>
+              <input
+                type="date"
+                className="text-sm border border-[#30363d] rounded-lg px-3 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                value={effectiveFrom}
+                onChange={e => setParam('date_from', e.target.value)}
+              />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Approach To</label>
-              <input type="date" className="text-sm border border-[#30363d] rounded-lg px-3 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]" value={dateTo} onChange={e => setParam('date_to', e.target.value)} />
+              <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Period to</label>
+              <input
+                type="date"
+                className="text-sm border border-[#30363d] rounded-lg px-3 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                value={effectiveTo}
+                onChange={e => setParam('date_to', e.target.value)}
+              />
             </div>
+            {!isDefaultPeriod && (
+              <div className="flex flex-col gap-1 justify-end">
+                <span className="text-[11px] text-transparent uppercase tracking-wide select-none">.</span>
+                <button
+                  onClick={() => { setParam('date_from', ''); setParam('date_to', '') }}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                  title="Reset period to current month"
+                >
+                  This month
+                </button>
+              </div>
+            )}
+            <p className="basis-full text-[11px] text-[#484f58] italic mt-1">
+              Period drives the table (date of first approach) and the sales KPI (converted date).
+            </p>
           </div>
         )}
       </div>

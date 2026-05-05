@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow, parseISO, startOfWeek, addWeeks, differenceInDays } from 'date-fns'
+import { format, formatDistanceToNow, parseISO, startOfWeek, addWeeks, differenceInCalendarDays } from 'date-fns'
 import { toZonedTime, formatInTimeZone } from 'date-fns-tz'
 
 const IST = 'Asia/Kolkata'
@@ -24,7 +24,24 @@ export function formatMonthYear(date: Date | string | null | undefined): string 
 
 export function daysRemaining(targetDate: string | null | undefined): number | null {
   if (!targetDate) return null
-  return differenceInDays(parseISO(targetDate), new Date())
+  // Use calendar-day diff so time-of-day on `new Date()` doesn't flip the result:
+  // target == today → 0, target == yesterday → -1, target == tomorrow → 1.
+  return differenceInCalendarDays(parseISO(targetDate), new Date())
+}
+
+/**
+ * Days-remaining variant for projects. Returns null for finished projects
+ * (completed, lost, or anything with an actual_end_date) so overdue/at-risk
+ * chips don't render on work that's already done.
+ */
+export function projectDaysRemaining(project: {
+  status: string
+  target_end_date: string | null
+  actual_end_date?: string | null
+}): number | null {
+  if (project.status === 'completed' || project.status === 'lost') return null
+  if (project.actual_end_date) return null
+  return daysRemaining(project.target_end_date)
 }
 
 export function getWeekMonday(date: Date = new Date()): Date {

@@ -16,9 +16,11 @@ import {
   Users,
   Activity,
   AlertTriangle,
+  Ban,
   type LucideIcon,
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { FinanceNav } from '@/components/finance/FinanceNav'
 import type { Project, Person, Allocation } from '@/lib/supabase/types'
 
 // ── Extended join type ───────────────────────────────────────────────────────
@@ -117,21 +119,33 @@ function computeMonthMetrics(
     return p.start_date <= monthEnd && end >= monthStart
   })
 
+  // Allocations on lost projects don't count as "real" allocated work —
+  // a lost project is one where the client backed out, so any time spent
+  // on it should land in bench cost rather than masquerading as project
+  // cost. Excluding them here keeps revenue/cost rows and bench totals
+  // honest without deleting historical allocation rows.
   const monthAllocs = allocations.filter(
-    a => a.start_date <= monthEnd && a.end_date >= monthStart,
+    a => a.start_date <= monthEnd && a.end_date >= monthStart
+      && a.projects?.status !== 'lost',
   )
+
+  // Salary lookup uses the allocation's snapshot (monthly_salary on the
+  // allocation row) so changing someone's current salary never rewrites
+  // historical project cost. Falls back to the live person salary only
+  // for legacy rows where the snapshot was never captured.
+  const allocSalary = (a: AllocationFull) => a.monthly_salary ?? a.people?.monthly_salary ?? null
 
   const projectRows = activeProjects.map(p => {
     const revenue = projectRevenueInMonth(p, year, month)
     const devCost = monthAllocs
       .filter(a => a.project_id === p.id)
-      .reduce((sum, a) => sum + allocationCostInMonth(a, a.people?.monthly_salary, year, month), 0)
+      .reduce((sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0)
     return { project: p, revenue, devCost, margin: revenue - devCost }
   })
 
   const totalRevenue = projectRows.reduce((s, r) => s + r.revenue, 0)
   const totalAllocatedCost = monthAllocs.reduce(
-    (sum, a) => sum + allocationCostInMonth(a, a.people?.monthly_salary, year, month), 0,
+    (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0,
   )
   const benchCost = Math.max(0, totalSalary - totalAllocatedCost)
   const netProfit = totalRevenue - totalSalary
@@ -139,8 +153,11 @@ function computeMonthMetrics(
 
   const personRows = people.map(person => {
     const personAllocs = monthAllocs.filter(a => a.person_id === person.id)
+    // Each allocation uses its own salary snapshot so historical project
+    // cost is preserved. The header salary column stays on live salary —
+    // it represents the company's current monthly outlay.
     const allocatedCost = personAllocs.reduce(
-      (sum, a) => sum + allocationCostInMonth(a, person.monthly_salary, year, month), 0,
+      (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0,
     )
     const salary = person.monthly_salary ?? 0
     const bench = Math.max(0, salary - allocatedCost)
@@ -253,6 +270,7 @@ export default function FinancePage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
+        <FinanceNav />
         <div className="flex items-center justify-between">
           <div className="space-y-1.5">
             <Skeleton className="h-5 w-24 bg-[#21262d]" />
@@ -273,8 +291,25 @@ export default function FinancePage() {
   const stretchedProjects = m_.projectRows.filter(r => isStretched(r.project, allocations!))
   const benchEmployees = m_.personRows.filter(r => r.utilPct < 20 && r.salary > 0 && r.person.type !== 'founder')
 
+  // ── Lost work — sales_value of projects the client backed out on. ──
+  // Scoped to the selected month via lost_at so this section reads as
+  // "what we lost in {Month}" alongside the rest of the page's monthly
+  // P&L. Projects without lost_at are skipped (graceful degrade for any
+  // legacy rows missing the timestamp).
+  const [monthStartIso, monthEndIso] = getMonthBounds(year, month)
+  const lostProjects = (projects ?? [])
+    .filter(p => {
+      if (p.status !== 'lost' || (p.sales_value ?? 0) <= 0) return false
+      if (!p.lost_at) return false
+      const lostDay = p.lost_at.slice(0, 10) // ISO timestamp → YYYY-MM-DD
+      return lostDay >= monthStartIso && lostDay <= monthEndIso
+    })
+    .sort((a, b) => (b.sales_value ?? 0) - (a.sales_value ?? 0))
+  const totalLostValue = lostProjects.reduce((s, p) => s + (p.sales_value ?? 0), 0)
+
   return (
     <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
+      <FinanceNav />
 
       {/* ── Header + Month Nav ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -367,6 +402,83 @@ export default function FinancePage() {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Lost Work — all-time tally of projects the client backed out on ── */}
+      {lostProjects.length > 0 && (
+        <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#30363d] flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-md bg-[#e24b4a]/15 border border-[#e24b4a]/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Ban className="h-4 w-4 text-[#e24b4a]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-medium text-[#e6edf3]">
+                  Work Lost <span className="text-[#6e7681] font-normal">· {monthLabel(year, month)}</span>
+                </h2>
+                <p className="text-xs text-[#6e7681] mt-0.5">
+                  Clients who backed out this month — excluded from revenue, payroll, and dev cost above
+                </p>
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-lg font-semibold tabular-nums text-[#e24b4a] leading-none">
+                {formatINR(totalLostValue)}
+              </p>
+              <p className="text-[11px] text-[#6e7681] mt-1.5">
+                {lostProjects.length} project{lostProjects.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#30363d]">
+                  <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Project</th>
+                  <th className="text-left px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden md:table-cell">Reason</th>
+                  <th className="text-right px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Lost value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lostProjects.map((p, i) => (
+                  <tr
+                    key={p.id}
+                    onClick={() => router.push(`/projects/${p.id}`)}
+                    className={cn(
+                      'border-b border-[#30363d]/60 last:border-0 hover:bg-[#21262d]/40 transition-colors cursor-pointer',
+                      i % 2 === 1 && 'bg-[#0d1117]/30',
+                    )}
+                  >
+                    <td className="px-5 py-3 max-w-[240px]">
+                      <p className="font-medium text-[#c9d1d9] truncate">{p.name}</p>
+                      <p className="text-xs text-[#6e7681] truncate mt-0.5">{p.client_name}</p>
+                    </td>
+                    <td className="px-3 py-3 hidden md:table-cell max-w-[360px]">
+                      {p.lost_reason ? (
+                        <p className="text-xs text-[#8b949e] line-clamp-2">{p.lost_reason}</p>
+                      ) : (
+                        <span className="text-xs text-[#484f58] italic">No reason recorded</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums font-medium text-[#e24b4a]">
+                      {formatINR(p.sales_value ?? 0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-[#30363d] bg-[#0d1117]/40">
+                  <td colSpan={2} className="px-5 py-3 text-xs font-medium text-[#6e7681]">
+                    Total lost ({lostProjects.length} project{lostProjects.length !== 1 ? 's' : ''})
+                  </td>
+                  <td className="px-5 py-3 text-right text-sm font-bold text-[#e24b4a] tabular-nums">
+                    {formatINR(totalLostValue)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
 

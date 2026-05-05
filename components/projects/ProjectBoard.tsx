@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Project, ProjectStatus } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
 import { formatINR } from '@/lib/utils/currency'
-import { daysRemaining } from '@/lib/utils/date'
+import { projectDaysRemaining } from '@/lib/utils/date'
 import { useQuery } from '@tanstack/react-query'
 
 const BOARD_COLUMNS: { status: ProjectStatus; label: string }[] = [
@@ -69,7 +69,7 @@ export function ProjectBoard({ onProjectClick, compact = false }: ProjectBoardPr
                 </div>
               ) : (
                 colProjects.map(project => {
-                  const days = daysRemaining(project.target_end_date)
+                  const days = projectDaysRemaining(project)
                   return (
                     <div
                       key={project.id}

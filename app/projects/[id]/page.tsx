@@ -5,15 +5,16 @@ import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { formatDate, daysRemaining } from '@/lib/utils/date'
-import { formatINR } from '@/lib/utils/currency'
+import { formatDate, projectDaysRemaining } from '@/lib/utils/date'
+import { formatINR, formatINRFull } from '@/lib/utils/currency'
 import {
   workingDays, workingHours, allocationCost, allocationSalaryCost,
   effectiveHourlyRate, formatCost,
 } from '@/lib/utils/cost'
-import type { Project, Allocation, Person, ProjectStatus } from '@/lib/supabase/types'
-import { ArrowLeft, Plus, Trash2, Pencil, Check, X, TrendingUp, TrendingDown } from 'lucide-react'
-import { format, addWeeks } from 'date-fns'
+import type { Project, Allocation, Person, ProjectStatus, Transaction } from '@/lib/supabase/types'
+import { ArrowLeft, Plus, Trash2, Pencil, Check, X, TrendingUp, TrendingDown, AlertTriangle, Receipt } from 'lucide-react'
+import { format, addWeeks, parseISO } from 'date-fns'
+import { AddTransactionDialog } from '@/components/finance/AddTransactionDialog'
 
 const PALETTE = [
   '#1d9e75', '#378add', '#8b5cf6', '#ef9f27', '#ec4899',
@@ -28,6 +29,7 @@ const ALL_STATUSES: { value: ProjectStatus; label: string }[] = [
   { value: 'on_hold',   label: 'On Hold' },
   { value: 'paused',    label: 'Paused' },
   { value: 'completed', label: 'Completed' },
+  { value: 'lost',      label: 'Lost' },
 ]
 
 const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
@@ -37,6 +39,7 @@ const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
   paused:        { bg: '#ef9f2722', text: '#ef9f27' },
   on_hold:       { bg: '#d4537e22', text: '#d4537e' },
   completed:     { bg: '#21262d',   text: '#6e7681' },
+  lost:          { bg: '#e24b4a22', text: '#e24b4a' },
 }
 
 const STATUS_NEEDS_START: ProjectStatus[] = ['active']
@@ -60,6 +63,9 @@ export default function ProjectPage() {
   const [form, setForm] = useState<Partial<Project>>({})
   const [showAddAlloc, setShowAddAlloc] = useState<string | boolean>(false) // string = pre-fill person_id
   const [editingAllocId, setEditingAllocId] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showRecordCollection, setShowRecordCollection] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [editAllocForm, setEditAllocForm] = useState({
     capacity_percent: 100,
     hourly_rate: '',
@@ -106,6 +112,20 @@ export default function ProjectPage() {
     },
   })
 
+  const { data: projectCollections } = useQuery({
+    queryKey: ['project_collections', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('project_id', id)
+        .eq('type', 'collection')
+        .order('date', { ascending: false })
+      if (error) throw error
+      return data as Transaction[]
+    },
+  })
+
   useEffect(() => {
     if (project) {
       setForm({
@@ -119,6 +139,7 @@ export default function ProjectPage() {
         sales_value: project.sales_value ?? 0,
         notes: project.notes ?? '',
         delay_reason: project.delay_reason ?? '',
+        lost_reason: project.lost_reason ?? '',
         actual_end_date: project.actual_end_date ?? '',
       })
     }
@@ -156,6 +177,7 @@ export default function ProjectPage() {
 
   const addAllocMutation = useMutation({
     mutationFn: async () => {
+      const person = (people ?? []).find(p => p.id === allocForm.person_id)
       const { error } = await supabase.from('allocations').insert({
         person_id: allocForm.person_id,
         project_id: id,
@@ -163,6 +185,7 @@ export default function ProjectPage() {
         end_date: allocForm.end_date,
         capacity_percent: allocForm.capacity_percent,
         hourly_rate: allocForm.hourly_rate ? parseFloat(allocForm.hourly_rate) : null,
+        monthly_salary: person?.monthly_salary ?? null,
         notes: allocForm.notes || null,
       })
       if (error) throw error
@@ -210,6 +233,18 @@ export default function ProjectPage() {
     },
   })
 
+  const deleteProjectMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('projects').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['allocations'] })
+      router.push('/projects')
+    },
+  })
+
   // Total current-week capacity per person across ALL projects (for overallocation warning)
   const personIds = [...new Set((allocations ?? []).map(a => a.person_id))]
   const { data: crossProjectLoad } = useQuery({
@@ -241,6 +276,21 @@ export default function ProjectPage() {
     if (!updates.start_date) updates.start_date = null
     if (!updates.target_end_date) updates.target_end_date = null
     if (!updates.color) updates.color = null
+
+    // Status transitions to/from 'lost' carry side effects: capture or
+    // clear lost_reason and lost_at so the Finance "Work Lost" view can
+    // scope to the month the loss happened in.
+    const wasLost = project?.status === 'lost'
+    const isLost = updates.status === 'lost'
+    if (!isLost) {
+      updates.lost_reason = null
+      updates.lost_at = null
+    } else {
+      if (!updates.lost_reason) updates.lost_reason = null
+      // Stamp lost_at only on the transition into lost; preserve the
+      // original timestamp on subsequent edits while the project stays lost.
+      if (!wasLost) updates.lost_at = new Date().toISOString()
+    }
     updateMutation.mutate(updates)
   }
 
@@ -282,7 +332,7 @@ export default function ProjectPage() {
     )
   }
 
-  const days = daysRemaining(project.target_end_date)
+  const days = projectDaysRemaining(project)
   const isOverdue = days !== null && days < 0
   const currentStatus = (form.status ?? project.status) as ProjectStatus
   const needsStartDate = STATUS_NEEDS_START.includes(currentStatus)
@@ -323,13 +373,22 @@ export default function ProjectPage() {
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#58a6ff]/40 text-xs transition-colors"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </button>
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#58a6ff]/40 text-xs transition-colors"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+              <button
+                onClick={() => { setDeleteConfirmText(''); setShowDeleteConfirm(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#30363d] text-[#8b949e] hover:text-[#e24b4a] hover:border-[#e24b4a]/40 text-xs transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -492,6 +551,29 @@ export default function ProjectPage() {
               </Field>
             )}
           </div>
+
+          {/* Lost reason — only when project is (or is being marked) lost */}
+          {currentStatus === 'lost' && (
+            <div className="mt-5 pt-4 border-t border-[#21262d]">
+              <Field label="Reason for loss">
+                {editing ? (
+                  <textarea
+                    className="w-full text-sm bg-[#0d1117] border border-[#e24b4a]/30 rounded-md px-3 py-2 text-[#e6edf3] resize-none focus:outline-none focus:border-[#e24b4a]"
+                    rows={2}
+                    value={form.lost_reason ?? ''}
+                    onChange={e => setForm(f => ({ ...f, lost_reason: e.target.value }))}
+                    placeholder="Why did the client back out? e.g. budget cuts, found cheaper option, scope mismatch…"
+                  />
+                ) : project.lost_reason ? (
+                  <div className="rounded-lg bg-[#e24b4a]/[0.08] border border-[#e24b4a]/30 px-3 py-2.5">
+                    <p className="text-xs text-[#e24b4a]">{project.lost_reason}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#6e7681] italic">No reason recorded</p>
+                )}
+              </Field>
+            </div>
+          )}
 
           {/* Delay reason */}
           <div className="mt-5 pt-4 border-t border-[#21262d]">
@@ -881,11 +963,15 @@ export default function ProjectPage() {
             hourlyCount++
           }
 
-          // Salary-based cost
+          // Salary-based cost — uses the snapshot taken at allocation time so
+          // that bumping someone's current salary doesn't rewrite past project
+          // costs. Falls back to the live salary only for legacy rows where
+          // no snapshot was captured.
           let salaryCost = 0, salaryCount = 0
           for (const a of allAllocs) {
-            if (a.people?.monthly_salary == null) continue
-            salaryCost += allocationSalaryCost(a.start_date, a.end_date, a.capacity_percent, a.people.monthly_salary) ?? 0
+            const snapshot = a.monthly_salary ?? a.people?.monthly_salary ?? null
+            if (snapshot == null) continue
+            salaryCost += allocationSalaryCost(a.start_date, a.end_date, a.capacity_percent, snapshot) ?? 0
             salaryCount++
           }
 
@@ -948,7 +1034,184 @@ export default function ProjectPage() {
             </div>
           )
         })()}
+
+        {/* ── Billing & Collections ── */}
+        {(() => {
+          const salesValue = project.sales_value ?? 0
+          if (salesValue <= 0) return null
+          const collections = projectCollections ?? []
+          const collected = collections.reduce((s, c) => s + Number(c.amount), 0)
+          const outstanding = Math.max(0, salesValue - collected)
+          const pct = salesValue > 0 ? Math.min(100, Math.round((collected / salesValue) * 100)) : 0
+          const fullyPaid = outstanding === 0 && collected > 0
+
+          return (
+            <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-md bg-[#1d9e75]/15 border border-[#1d9e75]/25 flex items-center justify-center">
+                    <Receipt className="h-3.5 w-3.5 text-[#1d9e75]" />
+                  </div>
+                  <div>
+                    <h2 className="text-xs font-semibold text-[#6e7681] uppercase tracking-widest">Billing</h2>
+                    <p className="text-[11px] text-[#6e7681] mt-0.5">
+                      Project payments tracked in the ledger
+                    </p>
+                  </div>
+                </div>
+                {project.status !== 'lost' && !fullyPaid && (
+                  <button
+                    onClick={() => setShowRecordCollection(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#1d9e75]/10 border border-[#1d9e75]/30 text-[#1d9e75] hover:bg-[#1d9e75]/20 text-xs font-medium transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Record collection
+                  </button>
+                )}
+              </div>
+
+              {/* Summary row */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="rounded-lg bg-[#0d1117] border border-[#21262d] px-4 py-3">
+                  <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Sales value</p>
+                  <p className="text-base font-semibold text-[#c9d1d9] mt-1 tabular-nums">{formatINRFull(salesValue)}</p>
+                </div>
+                <div className="rounded-lg bg-[#0d1117] border border-[#21262d] px-4 py-3">
+                  <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Collected</p>
+                  <p className="text-base font-semibold text-[#1d9e75] mt-1 tabular-nums">{formatINRFull(collected)}</p>
+                </div>
+                <div className="rounded-lg bg-[#0d1117] border border-[#21262d] px-4 py-3">
+                  <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">Outstanding</p>
+                  <p
+                    className="text-base font-semibold mt-1 tabular-nums"
+                    style={{ color: outstanding === 0 ? '#1d9e75' : '#ef9f27' }}
+                  >
+                    {formatINRFull(outstanding)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="space-y-1.5 mb-4">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#6e7681]">Payment progress</span>
+                  <span className="text-[#c9d1d9] tabular-nums font-medium">{pct}%</span>
+                </div>
+                <div className="h-2 bg-[#21262d] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${pct}%`,
+                      backgroundColor: pct >= 100 ? '#1d9e75' : pct >= 50 ? '#ef9f27' : '#e24b4a',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Collection list */}
+              {collections.length > 0 ? (
+                <div className="rounded-lg bg-[#0d1117] border border-[#21262d] divide-y divide-[#21262d]">
+                  {collections.slice(0, 5).map(c => (
+                    <div key={c.id} className="flex items-center justify-between px-3 py-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-6 w-6 rounded-full bg-[#1d9e75]/15 flex items-center justify-center flex-shrink-0">
+                          <Plus className="h-3 w-3 text-[#1d9e75]" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs text-[#c9d1d9] tabular-nums">
+                            {format(parseISO(c.date), 'dd MMM yyyy')}
+                          </p>
+                          {(c.reference || c.notes) && (
+                            <p className="text-[11px] text-[#6e7681] truncate">
+                              {c.reference && <span className="font-mono mr-1.5">{c.reference}</span>}
+                              {c.notes}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-sm font-medium text-[#1d9e75] tabular-nums whitespace-nowrap">
+                        +{formatINR(Number(c.amount))}
+                      </span>
+                    </div>
+                  ))}
+                  {collections.length > 5 && (
+                    <button
+                      onClick={() => router.push('/finance/ledger')}
+                      className="w-full px-3 py-2 text-[11px] text-[#58a6ff] hover:underline"
+                    >
+                      View all {collections.length} collections in Ledger →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-[#6e7681] italic text-center py-2">
+                  No collections recorded yet.
+                </p>
+              )}
+            </div>
+          )
+        })()}
       </div>
+
+      <AddTransactionDialog
+        open={showRecordCollection}
+        onClose={() => setShowRecordCollection(false)}
+        preselectedProjectId={id}
+        defaultMode="collection"
+      />
+
+      {/* Delete confirmation modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-xl w-full max-w-md shadow-2xl">
+            <div className="px-5 py-4 border-b border-[#30363d] flex items-center gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-[#e24b4a] flex-shrink-0" />
+              <h2 className="text-sm font-semibold text-[#e6edf3]">Delete project</h2>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              <p className="text-sm text-[#c9d1d9]">
+                Permanently delete <span className="font-semibold text-[#e6edf3]">{project.name}</span>?
+              </p>
+              <p className="text-xs text-[#8b949e]">
+                This will also remove all{' '}
+                <span className="text-[#e6edf3] font-medium">{(allocations ?? []).length} allocation{(allocations ?? []).length !== 1 ? 's' : ''}</span>{' '}
+                tied to this project. This action cannot be undone.
+              </p>
+              <div>
+                <label className="text-xs text-[#8b949e] block mb-1.5">
+                  Type <span className="text-[#c9d1d9] font-mono">{project.name}</span> to confirm
+                </label>
+                <input
+                  className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#e24b4a] placeholder-[#6e7681]"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder={project.name}
+                  autoFocus
+                />
+              </div>
+              {deleteProjectMutation.error && (
+                <p className="text-xs text-[#e24b4a]">{deleteProjectMutation.error.message}</p>
+              )}
+            </div>
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                disabled={deleteConfirmText !== project.name || deleteProjectMutation.isPending}
+                onClick={() => deleteProjectMutation.mutate()}
+                className="flex-1 py-2 rounded-lg bg-[#da3633] hover:bg-[#e24b4a] text-white text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {deleteProjectMutation.isPending ? 'Deleting…' : 'Delete project'}
+              </button>
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }}
+                disabled={deleteProjectMutation.isPending}
+                className="px-4 py-2 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

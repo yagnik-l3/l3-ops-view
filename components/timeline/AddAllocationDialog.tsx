@@ -54,12 +54,14 @@ export function AddAllocationDialog({ open, onClose, preselectedPerson, preselec
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const person = (people ?? []).find(p => p.id === form.person_id)
       const { data, error } = await supabase.from('allocations').insert({
         person_id: form.person_id,
         project_id: form.project_id,
         start_date: form.start_date,
         end_date: form.end_date,
         capacity_percent: parseInt(form.capacity_percent),
+        monthly_salary: person?.monthly_salary ?? null,
         notes: form.notes || null,
       }).select().single()
       if (error) throw error

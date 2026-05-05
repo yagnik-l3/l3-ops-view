@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { formatDate, daysRemaining } from '@/lib/utils/date'
+import { formatDate, projectDaysRemaining } from '@/lib/utils/date'
 import { formatINR } from '@/lib/utils/currency'
 import type { Project, ProjectStatus } from '@/lib/supabase/types'
 
@@ -30,7 +30,7 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, onClick }: ProjectCardProps) {
-  const days = daysRemaining(project.target_end_date)
+  const days = projectDaysRemaining(project)
   const isOverdue = days !== null && days < 0
   const isAtRisk = days !== null && days >= 0 && days <= 7
   const accent = STATUS_ACCENT[project.status]

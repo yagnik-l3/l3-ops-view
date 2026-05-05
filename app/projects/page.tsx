@@ -20,6 +20,7 @@ const STATUS_OPTIONS: { value: ProjectStatus | 'all'; label: string }[] = [
   { value: 'active', label: 'Active' },
   { value: 'on_hold', label: 'On Hold' },
   { value: 'completed', label: 'Completed' },
+  { value: 'lost', label: 'Lost' },
 ]
 
 export default function ProjectsPage() {

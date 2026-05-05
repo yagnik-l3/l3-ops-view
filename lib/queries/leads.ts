@@ -39,19 +39,28 @@ export async function getLeads(filter: LeadsFilter = {}, cursor?: number): Promi
   return data as Lead[]
 }
 
-export async function getLeadsKpi(convFrom?: string, convTo?: string) {
+export async function getLeadsKpi(dateFrom?: string, dateTo?: string) {
   const supabase = createClient()
 
+  // Same period drives both lists: KPI counts/sales are scoped to leads
+  // that converted in [dateFrom, dateTo] (matched against converted_date).
+  // Counts (interested / not_converted etc.) use the same period filtered
+  // against date_of_first_approach so the snapshot is internally consistent.
   const [{ data: rows, error }, { data: salesRows, error: salesError }] = await Promise.all([
-    supabase.from('leads').select('status'),
+    (() => {
+      let q = supabase.from('leads').select('status')
+      if (dateFrom) q = q.gte('date_of_first_approach', dateFrom)
+      if (dateTo)   q = q.lte('date_of_first_approach', dateTo)
+      return q
+    })(),
     (() => {
       let q = supabase
         .from('leads')
         .select('converted_amount')
         .eq('status', 'done')
         .not('converted_amount', 'is', null)
-      if (convFrom) q = q.gte('converted_date', convFrom)
-      if (convTo)   q = q.lte('converted_date', convTo)
+      if (dateFrom) q = q.gte('converted_date', dateFrom)
+      if (dateTo)   q = q.lte('converted_date', dateTo)
       return q
     })(),
   ])

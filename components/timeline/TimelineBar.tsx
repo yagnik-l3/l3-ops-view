@@ -13,6 +13,7 @@ const STATUS_COLORS: Record<ProjectStatus, string> = {
   paused:        'bg-zinc-100 text-zinc-500 border border-dashed border-zinc-300',
   on_hold:       'bg-[#D4537E]/20 text-[#D4537E] border border-dashed border-[#D4537E]/40',
   completed:     'bg-zinc-200 text-zinc-500',
+  lost:          'bg-[#E24B4A]/15 text-[#E24B4A] border border-dashed border-[#E24B4A]/40 line-through',
 }
 
 interface TimelineBarProps {
