@@ -161,8 +161,9 @@ export default function LeadsPage() {
   const dateTo           = searchParams.get('date_to')    ?? ''
   const searchFilter     = searchParams.get('search')     ?? ''
 
-  // Default period = current calendar month. Drives both the table filter
-  // (date_of_first_approach) and the KPI sales aggregate (converted_date).
+  // Current month is no longer applied by default — leads are listed across
+  // all dates in descending order. The "This month" shortcut button still
+  // populates the date pickers so founders can scope the view manually.
   const { monthStart, monthEnd } = useMemo(() => {
     const now = new Date()
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -172,13 +173,23 @@ export default function LeadsPage() {
     return { monthStart: fmt(start), monthEnd: fmt(end) }
   }, [])
 
-  const effectiveFrom = dateFrom || monthStart
-  const effectiveTo   = dateTo   || monthEnd
+  // Empty string = no filter for that side of the period.
+  const effectiveFrom = dateFrom
+  const effectiveTo   = dateTo
+  const hasPeriod     = !!(effectiveFrom || effectiveTo)
+  const isThisMonth   = effectiveFrom === monthStart && effectiveTo === monthEnd
 
   function setParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString())
     if (!value || value === 'all') params.delete(key)
     else params.set(key, value)
+    router.replace(`${pathname}?${params.toString()}`)
+  }
+
+  function setPeriod(from: string, to: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (from) params.set('date_from', from); else params.delete('date_from')
+    if (to)   params.set('date_to',   to);   else params.delete('date_to')
     router.replace(`${pathname}?${params.toString()}`)
   }
 
@@ -191,17 +202,14 @@ export default function LeadsPage() {
     source:      sourceFilter !== 'all' ? sourceFilter : undefined,
     connect_via: connectViaFilter !== 'all' ? connectViaFilter : undefined,
     poc:         pocFilter    || undefined,
-    dateFrom:    effectiveFrom,
-    dateTo:      effectiveTo,
-    search:      searchFilter || undefined,
+    dateFrom:    effectiveFrom || undefined,
+    dateTo:      effectiveTo   || undefined,
+    search:      searchFilter  || undefined,
   }), [statusFilter, sourceFilter, connectViaFilter, pocFilter, effectiveFrom, effectiveTo, searchFilter])
 
-  // "Active" filters are any non-default values. The date range is treated
-  // as default when it equals the current calendar month.
-  const isDefaultPeriod = effectiveFrom === monthStart && effectiveTo === monthEnd
   const hasActiveFilters =
     statusFilter !== 'all' || sourceFilter !== 'all' || connectViaFilter !== 'all' ||
-    !!pocFilter || !isDefaultPeriod || !!searchFilter
+    !!pocFilter || hasPeriod || !!searchFilter
 
   // ── Column visibility ──
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(DEFAULT_VISIBLE))
@@ -266,26 +274,29 @@ export default function LeadsPage() {
 
   function closeModal() { setShowAdd(false); setEditLead(null) }
 
-  // ── KPI — same period as the table ──
+  // ── KPI — same period as the table; all-time when no period set ──
   const { data: kpi, isLoading: kpiLoading } = useQuery({
     queryKey: ['leads_kpi', effectiveFrom, effectiveTo],
-    queryFn:  () => getLeadsKpi(effectiveFrom, effectiveTo),
+    queryFn:  () => getLeadsKpi(effectiveFrom || undefined, effectiveTo || undefined),
     staleTime: 30_000,
   })
 
-  // ── Period label — "This month" if defaulted, else explicit range ──
+  // ── Period label ──
   const salesPeriodLabel = useMemo(() => {
-    if (isDefaultPeriod) return `This month · ${formatDate(effectiveFrom, 'dd MMM')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
-    return `${formatDate(effectiveFrom, 'dd MMM yy')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
-  }, [isDefaultPeriod, effectiveFrom, effectiveTo])
+    if (!hasPeriod) return 'All time'
+    if (isThisMonth) return `This month · ${formatDate(effectiveFrom, 'dd MMM')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
+    if (effectiveFrom && effectiveTo) return `${formatDate(effectiveFrom, 'dd MMM yy')} – ${formatDate(effectiveTo, 'dd MMM yy')}`
+    if (effectiveFrom) return `From ${formatDate(effectiveFrom, 'dd MMM yy')}`
+    return `Until ${formatDate(effectiveTo, 'dd MMM yy')}`
+  }, [hasPeriod, isThisMonth, effectiveFrom, effectiveTo])
 
-  // ── Infinite scroll ──
+  // ── Infinite scroll (offset-based pagination) ──
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery({
     queryKey: ['leads', activeFilter],
-    queryFn:  ({ pageParam }) => getLeads(activeFilter, pageParam as number | undefined),
-    initialPageParam: undefined as number | undefined,
-    getNextPageParam: (lastPage) =>
-      lastPage.length < PAGE_SIZE ? undefined : lastPage[lastPage.length - 1].id,
+    queryFn:  ({ pageParam }) => getLeads(activeFilter, pageParam as number),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < PAGE_SIZE ? undefined : allPages.length,
     staleTime: 30_000,
   })
 
@@ -512,20 +523,30 @@ export default function LeadsPage() {
                 onChange={e => setParam('date_to', e.target.value)}
               />
             </div>
-            {!isDefaultPeriod && (
-              <div className="flex flex-col gap-1 justify-end">
-                <span className="text-[11px] text-transparent uppercase tracking-wide select-none">.</span>
+            <div className="flex flex-col gap-1 justify-end">
+              <span className="text-[11px] text-transparent uppercase tracking-wide select-none">.</span>
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => { setParam('date_from', ''); setParam('date_to', '') }}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-                  title="Reset period to current month"
+                  onClick={() => setPeriod(monthStart, monthEnd)}
+                  disabled={isThisMonth}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Scope to current month"
                 >
                   This month
                 </button>
+                {hasPeriod && (
+                  <button
+                    onClick={() => setPeriod('', '')}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+                    title="Show leads from all dates"
+                  >
+                    All time
+                  </button>
+                )}
               </div>
-            )}
+            </div>
             <p className="basis-full text-[11px] text-[#484f58] italic mt-1">
-              Period drives the table (date of first approach) and the sales KPI (converted date).
+              Period drives the table (date of first approach) and the sales KPI (converted date). Leave both empty to show all leads.
             </p>
           </div>
         )}

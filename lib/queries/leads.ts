@@ -13,15 +13,21 @@ export interface LeadsFilter {
   search?: string
 }
 
-export async function getLeads(filter: LeadsFilter = {}, cursor?: number): Promise<Lead[]> {
+export async function getLeads(filter: LeadsFilter = {}, page: number = 0): Promise<Lead[]> {
   const supabase = createClient()
+  // Most-recent first by approach date, with id as a stable tiebreaker.
+  // Offset-based paging is used (instead of cursor-on-id) so it stays
+  // correct under date-based ordering — the volume here is small enough
+  // that O(offset) reads are fine.
+  const from = page * PAGE_SIZE
+  const to   = from + PAGE_SIZE - 1
   let query = supabase
     .from('leads')
     .select('*')
+    .order('date_of_first_approach', { ascending: false })
     .order('id', { ascending: false })
-    .limit(PAGE_SIZE)
+    .range(from, to)
 
-  if (cursor) query = query.lt('id', cursor)
   if (filter.status && filter.status !== 'all') query = query.eq('status', filter.status)
   if (filter.source && filter.source !== 'all') query = query.eq('source', filter.source)
   if (filter.connect_via && filter.connect_via !== 'all') query = query.eq('connect_via', filter.connect_via)
