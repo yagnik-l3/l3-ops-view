@@ -135,6 +135,78 @@ export function allocationSalaryCost(
   return Math.round(totalCost)
 }
 
+/**
+ * Format a YYYY-MM-DD date string from a Date.
+ */
+function dateIso(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * Daily hybrid cost: for each working day in the allocation × month overlap,
+ * if actual hours were logged that day for (person, project), cost the day at
+ * (actual_hours / 8 / month_working_days) × monthly_salary; otherwise cost it
+ * at the planned (capacity% / month_working_days) × monthly_salary share.
+ *
+ * Returns the total cost plus a count of how many working days came from
+ * actuals vs planned — used by the UI to badge each project row.
+ */
+export function effectiveAllocationCost(
+  alloc: {
+    start_date: string
+    end_date: string
+    capacity_percent: number
+    person_id: string
+    project_id: string
+  },
+  monthlySalary: number | null,
+  monthStart: string,
+  monthEnd: string,
+  hoursByDay: Map<string, number>,
+): { cost: number; actualDays: number; plannedDays: number } {
+  if (monthlySalary == null) return { cost: 0, actualDays: 0, plannedDays: 0 }
+
+  const overlapStart = alloc.start_date > monthStart ? alloc.start_date : monthStart
+  const overlapEnd = alloc.end_date < monthEnd ? alloc.end_date : monthEnd
+  if (overlapStart > overlapEnd) return { cost: 0, actualDays: 0, plannedDays: 0 }
+
+  const start = new Date(overlapStart + 'T00:00:00')
+  const end = new Date(overlapEnd + 'T00:00:00')
+
+  let totalCost = 0
+  let actualDays = 0
+  let plannedDays = 0
+  const cur = new Date(start)
+
+  while (cur <= end) {
+    if (isWorkingDay(cur)) {
+      const year = cur.getFullYear()
+      const month = cur.getMonth() + 1
+      const monthDays = workingDaysInMonth(year, month)
+      if (monthDays > 0) {
+        const iso = dateIso(cur)
+        const key = `${alloc.person_id}|${alloc.project_id}|${iso}`
+        const actualHours = hoursByDay.get(key)
+        if (actualHours != null && actualHours > 0) {
+          // Cap at a full day so an over-logged day doesn't exceed 100% capacity attribution.
+          const cappedHours = Math.min(actualHours, HOURS_PER_DAY)
+          totalCost += (cappedHours / HOURS_PER_DAY / monthDays) * monthlySalary
+          actualDays++
+        } else {
+          totalCost += (alloc.capacity_percent / 100 / monthDays) * monthlySalary
+          plannedDays++
+        }
+      }
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+
+  return { cost: Math.round(totalCost), actualDays, plannedDays }
+}
+
 // ── Formatting ──────────────────────────────────────────────────────────────
 
 /** Format a rupee amount with K / L shorthand */

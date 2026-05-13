@@ -16,6 +16,7 @@ import {
 import type { Person, Allocation, Project } from '@/lib/supabase/types'
 import { format } from 'date-fns'
 import { ArrowLeft, Briefcase, CalendarRange, Clock } from 'lucide-react'
+import { PersonTimePanel } from '@/components/people/PersonTimePanel'
 
 type AllocWithProject = Allocation & { projects: Project }
 
@@ -184,6 +185,9 @@ export default function PersonPage() {
             })}
           </div>
         </div>
+
+        {/* Time logged from daily entries */}
+        <PersonTimePanel personId={id} />
 
         {/* Active projects */}
         {activeAllocs.length > 0 && (

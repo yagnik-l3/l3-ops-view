@@ -5,7 +5,8 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { formatINR } from '@/lib/utils/currency'
-import { allocationSalaryCost } from '@/lib/utils/cost'
+import { effectiveAllocationCost } from '@/lib/utils/cost'
+import { getMonthTimeEntries } from '@/lib/queries/time'
 import { formatDate } from '@/lib/utils/date'
 import { cn } from '@/lib/utils'
 import {
@@ -85,13 +86,23 @@ function allocationCostInMonth(
   monthlySalary: number | null | undefined,
   year: number,
   month: number,
-): number {
-  if (!monthlySalary) return 0
+  hoursByDay: Map<string, number>,
+): { cost: number; actualDays: number; plannedDays: number } {
+  if (!monthlySalary) return { cost: 0, actualDays: 0, plannedDays: 0 }
   const [monthStart, monthEnd] = getMonthBounds(year, month)
-  const start = alloc.start_date > monthStart ? alloc.start_date : monthStart
-  const end = alloc.end_date < monthEnd ? alloc.end_date : monthEnd
-  if (start > end) return 0
-  return allocationSalaryCost(start, end, alloc.capacity_percent, monthlySalary) ?? 0
+  return effectiveAllocationCost(
+    {
+      start_date: alloc.start_date,
+      end_date: alloc.end_date,
+      capacity_percent: alloc.capacity_percent,
+      person_id: alloc.person_id,
+      project_id: alloc.project_id,
+    },
+    monthlySalary,
+    monthStart,
+    monthEnd,
+    hoursByDay,
+  )
 }
 
 function isStretched(p: Project, allAllocations: AllocationFull[]): boolean {
@@ -107,6 +118,7 @@ function computeMonthMetrics(
   people: Person[],
   projects: Project[],
   allocations: AllocationFull[],
+  hoursByDay: Map<string, number>,
 ) {
   const [monthStart, monthEnd] = getMonthBounds(year, month)
 
@@ -137,15 +149,22 @@ function computeMonthMetrics(
 
   const projectRows = activeProjects.map(p => {
     const revenue = projectRevenueInMonth(p, year, month)
-    const devCost = monthAllocs
-      .filter(a => a.project_id === p.id)
-      .reduce((sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0)
-    return { project: p, revenue, devCost, margin: revenue - devCost }
+    let devCost = 0
+    let actualDays = 0
+    let plannedDays = 0
+    for (const a of monthAllocs) {
+      if (a.project_id !== p.id) continue
+      const r = allocationCostInMonth(a, allocSalary(a), year, month, hoursByDay)
+      devCost += r.cost
+      actualDays += r.actualDays
+      plannedDays += r.plannedDays
+    }
+    return { project: p, revenue, devCost, margin: revenue - devCost, actualDays, plannedDays }
   })
 
   const totalRevenue = projectRows.reduce((s, r) => s + r.revenue, 0)
   const totalAllocatedCost = monthAllocs.reduce(
-    (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0,
+    (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month, hoursByDay).cost, 0,
   )
   const benchCost = Math.max(0, totalSalary - totalAllocatedCost)
   const netProfit = totalRevenue - totalSalary
@@ -153,11 +172,8 @@ function computeMonthMetrics(
 
   const personRows = people.map(person => {
     const personAllocs = monthAllocs.filter(a => a.person_id === person.id)
-    // Each allocation uses its own salary snapshot so historical project
-    // cost is preserved. The header salary column stays on live salary —
-    // it represents the company's current monthly outlay.
     const allocatedCost = personAllocs.reduce(
-      (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month), 0,
+      (sum, a) => sum + allocationCostInMonth(a, allocSalary(a), year, month, hoursByDay).cost, 0,
     )
     const salary = person.monthly_salary ?? 0
     const bench = Math.max(0, salary - allocatedCost)
@@ -228,16 +244,9 @@ export default function FinancePage() {
     staleTime: 60_000,
   })
 
-  const isLoading = loadingPeople || loadingProjects || loadingAllocations
-  const hasData = !!(people && projects && allocations)
-
-  // Current month metrics
-  const metrics = useMemo(
-    () => hasData ? computeMonthMetrics(year, month, people!, projects!, allocations!) : null,
-    [hasData, year, month, people, projects, allocations],
-  )
-
-  // 6-month trend
+  // 6-month trend window — we fetch all time entries in the trend window once
+  // and bucket per (person, project, day) so the same map serves the current
+  // month and every trend month without N round-trips.
   const trendMonths = useMemo<[number, number][]>(() => {
     const result: [number, number][] = []
     let [y, m]: [number, number] = [year, month]
@@ -248,12 +257,42 @@ export default function FinancePage() {
     return result
   }, [year, month])
 
+  const trendBounds = useMemo<[string, string]>(() => {
+    const [firstY, firstM] = trendMonths[0]
+    const [lastY, lastM] = trendMonths[trendMonths.length - 1]
+    return [getMonthBounds(firstY, firstM)[0], getMonthBounds(lastY, lastM)[1]]
+  }, [trendMonths])
+
+  const { data: timeEntries, isLoading: loadingTime } = useQuery({
+    queryKey: ['finance_time_entries', trendBounds[0], trendBounds[1]],
+    queryFn: () => getMonthTimeEntries(trendBounds[0], trendBounds[1]),
+    staleTime: 60_000,
+  })
+
+  const hoursByDay = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const e of timeEntries ?? []) {
+      const key = `${e.person_id}|${e.project_id}|${e.date}`
+      map.set(key, (map.get(key) ?? 0) + Number(e.hours))
+    }
+    return map
+  }, [timeEntries])
+
+  const isLoading = loadingPeople || loadingProjects || loadingAllocations || loadingTime
+  const hasData = !!(people && projects && allocations && timeEntries)
+
+  // Current month metrics
+  const metrics = useMemo(
+    () => hasData ? computeMonthMetrics(year, month, people!, projects!, allocations!, hoursByDay) : null,
+    [hasData, year, month, people, projects, allocations, hoursByDay],
+  )
+
   const trendData = useMemo(
     () => !hasData ? [] : trendMonths.map(([y, m]) => ({
       year: y, month: m,
-      ...computeMonthMetrics(y, m, people!, projects!, allocations!),
+      ...computeMonthMetrics(y, m, people!, projects!, allocations!, hoursByDay),
     })),
-    [hasData, trendMonths, people, projects, allocations],
+    [hasData, trendMonths, people, projects, allocations, hoursByDay],
   )
 
   const trendMax = useMemo(
@@ -516,9 +555,11 @@ export default function FinancePage() {
                 {m_.projectRows
                   .slice()
                   .sort((a, b) => b.revenue - a.revenue)
-                  .map(({ project: p, revenue, devCost, margin }, i) => {
+                  .map(({ project: p, revenue, devCost, margin, actualDays, plannedDays }, i) => {
                     const stretched = isStretched(p, allocations!)
                     const mPct = revenue > 0 ? Math.round((margin / revenue) * 100) : null
+                    const totalDays = actualDays + plannedDays
+                    const actualPct = totalDays > 0 ? Math.round((actualDays / totalDays) * 100) : 0
                     return (
                       <tr
                         key={p.id}
@@ -551,6 +592,19 @@ export default function FinancePage() {
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums text-[#8b949e]">
                           {devCost > 0 ? formatINR(devCost) : <span className="text-[#30363d]">—</span>}
+                          {devCost > 0 && totalDays > 0 && (
+                            <div
+                              className={cn(
+                                'text-[10px] mt-0.5',
+                                actualPct === 0 ? 'text-[#484f58]'
+                                : actualPct === 100 ? 'text-[#1d9e75]'
+                                : 'text-[#58a6ff]'
+                              )}
+                              title={`${actualDays} day(s) actuals · ${plannedDays} day(s) planned`}
+                            >
+                              {actualPct === 0 ? 'planned' : actualPct === 100 ? 'actuals' : `${actualPct}% actuals`}
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right">
                           <span className={cn('font-medium tabular-nums', margin >= 0 ? 'text-[#1D9E75]' : 'text-[#E24B4A]')}>

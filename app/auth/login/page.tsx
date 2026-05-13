@@ -20,7 +20,7 @@ export default function LoginPage() {
     if (error) {
       setError('Invalid credentials. Please try again.')
     } else {
-      router.push('/timeline')
+      router.push('/')
       router.refresh()
     }
     setLoading(false)

@@ -8,6 +8,7 @@ export type Json =
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -253,6 +254,57 @@ export type Database = {
         }
         Relationships: []
       }
+      time_entries: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          date: string
+          hours: number
+          id: string
+          person_id: string
+          project_id: string
+          updated_at: string
+          work_log: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          date: string
+          hours: number
+          id?: string
+          person_id: string
+          project_id: string
+          updated_at?: string
+          work_log?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          hours?: number
+          id?: string
+          person_id?: string
+          project_id?: string
+          updated_at?: string
+          work_log?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           account_id: string
@@ -262,7 +314,9 @@ export type Database = {
           created_by: string | null
           date: string
           direction: Database["public"]["Enums"]["transaction_direction"]
-          expense_category: Database["public"]["Enums"]["expense_category"] | null
+          expense_category:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
           id: string
           notes: string | null
           person_id: string | null
@@ -279,7 +333,9 @@ export type Database = {
           created_by?: string | null
           date: string
           direction: Database["public"]["Enums"]["transaction_direction"]
-          expense_category?: Database["public"]["Enums"]["expense_category"] | null
+          expense_category?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
           id?: string
           notes?: string | null
           person_id?: string | null
@@ -296,7 +352,9 @@ export type Database = {
           created_by?: string | null
           date?: string
           direction?: Database["public"]["Enums"]["transaction_direction"]
-          expense_category?: Database["public"]["Enums"]["expense_category"] | null
+          expense_category?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
           id?: string
           notes?: string | null
           person_id?: string | null
@@ -334,25 +392,40 @@ export type Database = {
           created_at: string | null
           full_name: string | null
           id: string
+          person_id: string | null
+          role: string
         }
         Insert: {
           created_at?: string | null
           full_name?: string | null
           id: string
+          person_id?: string | null
+          role?: string
         }
         Update: {
           created_at?: string | null
           full_name?: string | null
           id?: string
+          person_id?: string | null
+          role?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_profiles_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_founder: { Args: never; Returns: boolean }
+      my_person_id: { Args: never; Returns: string }
     }
     Enums: {
       connect_via: "whatsapp" | "facebook" | "linkedin" | "email" | "call"
@@ -402,8 +475,7 @@ export type PersonType = Database["public"]["Enums"]["person_type"]
 export type ConnectVia = Database["public"]["Enums"]["connect_via"]
 export type LeadSource = Database["public"]["Enums"]["lead_source"]
 export type LeadStatus = Database["public"]["Enums"]["lead_status"]
-export type DealStatus = Database["public"]["Enums"]
-export type UserRole = "sales" | "production"
+export type UserRole = "founder" | "employee"
 
 export type LedgerAccountType   = Database["public"]["Enums"]["ledger_account_type"]
 export type TransactionType     = Database["public"]["Enums"]["transaction_type"]
@@ -416,9 +488,6 @@ export type Person = Database["public"]["Tables"]["people"]["Row"]
 export type PersonInsert = Database["public"]["Tables"]["people"]["Insert"]
 export type Allocation = Database["public"]["Tables"]["allocations"]["Row"]
 export type AllocationInsert = Database["public"]["Tables"]["allocations"]["Insert"]
-export type SalesTarget = Database["public"]["Tables"]
-export type Deal = Database["public"]["Tables"]
-export type DealInsert = Database["public"]["Tables"]
 export type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"]
 export type Lead = Database["public"]["Tables"]["leads"]["Row"]
 export type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"]
@@ -432,6 +501,10 @@ export type Transaction       = Database["public"]["Tables"]["transactions"]["Ro
 export type TransactionInsert = Database["public"]["Tables"]["transactions"]["Insert"]
 export type TransactionUpdate = Database["public"]["Tables"]["transactions"]["Update"]
 
+export type TimeEntry        = Database["public"]["Tables"]["time_entries"]["Row"]
+export type TimeEntryInsert  = Database["public"]["Tables"]["time_entries"]["Insert"]
+export type TimeEntryUpdate  = Database["public"]["Tables"]["time_entries"]["Update"]
+
 // Extended join types
 export type AllocationWithProject = Allocation & { projects: Project }
 export type AllocationWithPerson = Allocation & { people: Person }
@@ -442,4 +515,9 @@ export type TransactionWithRelations = Transaction & {
   ledger_accounts: LedgerAccount | null
   projects: Project | null
   people: Person | null
+}
+
+export type TimeEntryWithRelations = TimeEntry & {
+  people: Person | null
+  projects: Project | null
 }

@@ -45,7 +45,7 @@ export default async function RootLayout({
                 <main className="flex-1 ml-0 md:ml-50 min-h-screen pb-16 md:pb-0">
                   {children}
                 </main>
-                <MobileNav />
+                <MobileNav profile={profile} />
               </div>
             ) : (
               <>{children}</>

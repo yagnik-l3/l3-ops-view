@@ -15,6 +15,7 @@ import type { Project, Allocation, Person, ProjectStatus, Transaction } from '@/
 import { ArrowLeft, Plus, Trash2, Pencil, Check, X, TrendingUp, TrendingDown, AlertTriangle, Receipt } from 'lucide-react'
 import { format, addWeeks, parseISO } from 'date-fns'
 import { AddTransactionDialog } from '@/components/finance/AddTransactionDialog'
+import { ProjectTimePanel } from '@/components/projects/ProjectTimePanel'
 
 const PALETTE = [
   '#1d9e75', '#378add', '#8b5cf6', '#ef9f27', '#ec4899',
@@ -948,6 +949,9 @@ export default function ProjectPage() {
             </div>
           )}
         </div>
+
+        {/* Time logged from daily entries */}
+        <ProjectTimePanel projectId={id} />
 
         {/* Project economics — hourly + salary */}
         {(() => {

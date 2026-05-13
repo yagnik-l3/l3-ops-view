@@ -12,17 +12,28 @@ import {
   LogOut,
   BarChart2,
   Target,
+  ClipboardList,
+  Activity,
+  UserCircle2,
 } from 'lucide-react'
 import type { UserProfile } from '@/lib/supabase/types'
 
-const NAV_ITEMS = [
+const FOUNDER_NAV = [
   { href: '/timeline',  label: 'Timeline',   icon: CalendarRange },
   { href: '/projects',  label: 'Projects',   icon: Folder },
   { href: '/people',    label: 'People',     icon: Users },
   { href: '/leads',     label: 'Leads',      icon: Target },
   { href: '/finance',   label: 'Finance',    icon: BarChart2 },
+  { href: '/feed',      label: 'Activity',   icon: Activity },
   { href: '/settings',  label: 'Settings',   icon: Settings },
-]
+] as const
+
+function employeeNav(personId: string | null | undefined) {
+  return [
+    { href: '/log', label: 'Daily log', icon: ClipboardList },
+    ...(personId ? [{ href: `/people/${personId}`, label: 'My profile', icon: UserCircle2 }] : []),
+  ] as const
+}
 
 interface SidebarProps {
   profile: UserProfile | null
@@ -33,6 +44,9 @@ export function Sidebar({ profile }: SidebarProps) {
   const router = useRouter()
   const supabase = createClient()
 
+  const isEmployee = profile?.role === 'employee'
+  const items = isEmployee ? employeeNav(profile?.person_id) : FOUNDER_NAV
+
   async function handleSignOut() {
     await supabase.auth.signOut()
     router.push('/auth/login')
@@ -40,7 +54,7 @@ export function Sidebar({ profile }: SidebarProps) {
   }
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-[200px] bg-[#161b22] border-r border-[#30363d] flex flex-col z-30">
+    <aside className="fixed left-0 top-0 h-full w-[200px] bg-[#161b22] border-r border-[#30363d] flex-col z-30 hidden md:flex">
       {/* Logo */}
       <div className="h-14 flex items-center px-5 border-b border-[#30363d]">
         <div className="flex items-center gap-2.5">
@@ -53,7 +67,7 @@ export function Sidebar({ profile }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || (href !== '/timeline' && pathname.startsWith(href))
           return (
             <Link
@@ -78,7 +92,7 @@ export function Sidebar({ profile }: SidebarProps) {
         {profile && (
           <div className="px-3 py-2 mb-1">
             <p className="text-sm font-medium text-[#c9d1d9] truncate">{profile.full_name}</p>
-            <span className="text-[11px] text-[#8b949e] capitalize">Founder</span>
+            <span className="text-[11px] text-[#8b949e] capitalize">{profile.role}</span>
           </div>
         )}
         <button

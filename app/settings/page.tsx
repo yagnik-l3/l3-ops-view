@@ -56,8 +56,11 @@ export default function SettingsPage() {
     default_hourly_rate: '',
     monthly_salary: '',
   })
-  const [inviteForm, setInviteForm] = useState({ email: '', full_name: '' })
-  const [inviteSuccess, setInviteSuccess] = useState(false)
+  const [inviteForm, setInviteForm] = useState<{
+    email: string; full_name: string; role: 'founder' | 'employee'; person_id: string; password: string
+  }>({ email: '', full_name: '', role: 'founder', person_id: '', password: '' })
+  const [inviteSuccess, setInviteSuccess] = useState<{ email: string; password: string } | null>(null)
+  const [showInvitePassword, setShowInvitePassword] = useState(false)
 
   const { data: people, isLoading } = useQuery({
     queryKey: ['people_all'],
@@ -138,18 +141,36 @@ export default function SettingsPage() {
       const res = await fetch('/api/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteForm.email, full_name: inviteForm.full_name }),
+        body: JSON.stringify({
+          email: inviteForm.email,
+          full_name: inviteForm.role === 'founder' ? inviteForm.full_name : null,
+          role: inviteForm.role,
+          person_id: inviteForm.role === 'employee' ? inviteForm.person_id : null,
+          password: inviteForm.password,
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error ?? `Invite failed (${res.status})`)
+        throw new Error(body.error ?? `Create failed (${res.status})`)
       }
+      return { email: inviteForm.email, password: inviteForm.password }
     },
-    onSuccess: () => {
-      setInviteSuccess(true)
-      setTimeout(() => { setShowInvite(false); setInviteSuccess(false) }, 2000)
+    onSuccess: (creds) => {
+      queryClient.invalidateQueries({ queryKey: ['team_profiles'] })
+      setInviteSuccess(creds)
     },
   })
+
+  function closeInviteModal() {
+    setShowInvite(false)
+    setInviteSuccess(null)
+    setShowInvitePassword(false)
+    setInviteForm({ email: '', full_name: '', role: 'founder', person_id: '', password: '' })
+  }
+
+  // People available for employee invite: active + not already linked.
+  const linkedPersonIds = new Set((teamProfiles ?? []).map(p => p.person_id).filter(Boolean) as string[])
+  const invitablePeople = (people ?? []).filter(p => p.is_active && !linkedPersonIds.has(p.id))
 
   function openEdit(person: Person) {
     setPersonForm({
@@ -245,33 +266,45 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Founders with access */}
+      {/* Members with access */}
       <div className="rounded-xl border border-[#30363d] bg-[#161b22] p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-medium text-[#c9d1d9]">Founders with access</h2>
+          <h2 className="text-sm font-medium text-[#c9d1d9]">Members with access</h2>
           <button
             onClick={() => setShowInvite(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#58a6ff]/40 text-xs transition-colors"
           >
-            <UserPlus className="h-3.5 w-3.5" /> Invite founder
+            <UserPlus className="h-3.5 w-3.5" /> Create member
           </button>
         </div>
         <div className="space-y-1">
-          {(teamProfiles ?? []).map(p => (
-            <div key={p.id} className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#21262d]/60 transition-colors">
-              <div className="h-8 w-8 rounded-full bg-[#21262d] border border-[#30363d] flex items-center justify-center text-[#8b949e] text-xs font-medium">
-                {p.full_name?.slice(0, 2).toUpperCase() ?? '??'}
+          {(teamProfiles ?? []).map(p => {
+            const linkedPerson = p.person_id ? (people ?? []).find(pp => pp.id === p.person_id) : null
+            const isFounder = p.role === 'founder'
+            return (
+              <div key={p.id} className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#21262d]/60 transition-colors">
+                <div className="h-8 w-8 rounded-full bg-[#21262d] border border-[#30363d] flex items-center justify-center text-[#8b949e] text-xs font-medium">
+                  {p.full_name?.slice(0, 2).toUpperCase() ?? '??'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#e6edf3] truncate">{p.full_name ?? 'Unnamed'}</p>
+                  {linkedPerson && (
+                    <p className="text-xs text-[#6e7681] truncate">→ {linkedPerson.name}</p>
+                  )}
+                </div>
+                <span className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full border',
+                  isFounder
+                    ? 'bg-[#378add]/10 text-[#378add] border-[#378add]/20'
+                    : 'bg-[#1d9e75]/10 text-[#1d9e75] border-[#1d9e75]/20'
+                )}>
+                  {isFounder ? 'Founder' : 'Employee'}
+                </span>
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-[#e6edf3]">{p.full_name ?? 'Unnamed'}</p>
-              </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#378add]/10 text-[#378add] border border-[#378add]/20">
-                Founder
-              </span>
-            </div>
-          ))}
+            )
+          })}
           {(teamProfiles ?? []).length === 0 && (
-            <p className="text-sm text-[#6e7681] py-4 text-center">No founders found.</p>
+            <p className="text-sm text-[#6e7681] py-4 text-center">No members found.</p>
           )}
         </div>
       </div>
@@ -381,45 +414,147 @@ export default function SettingsPage() {
         </Modal>
       )}
 
-      {/* Invite modal */}
+      {/* Create member modal */}
       {showInvite && (
-        <Modal title="Invite founder" onClose={() => setShowInvite(false)}>
+        <Modal title="Create member" onClose={closeInviteModal}>
           {inviteSuccess ? (
-            <div className="py-6 text-center">
-              <div className="flex items-center justify-center gap-2 text-[#1d9e75]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-[#1d9e75]">
                 <Check className="h-5 w-5" />
-                <p className="text-sm font-medium">Invite sent!</p>
+                <p className="text-sm font-medium">User created.</p>
               </div>
-              <p className="text-xs text-[#6e7681] mt-1">They'll receive an email to set their password.</p>
+              <p className="text-xs text-[#8b949e]">Share these credentials with them — they can sign in immediately.</p>
+              <div className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3 space-y-2 font-mono text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#6e7681]">email</span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(inviteSuccess.email)}
+                    className="text-[#e6edf3] hover:text-[#58a6ff] transition-colors text-right truncate"
+                    title="Click to copy"
+                  >
+                    {inviteSuccess.email}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#6e7681]">password</span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(inviteSuccess.password)}
+                    className="text-[#e6edf3] hover:text-[#58a6ff] transition-colors text-right"
+                    title="Click to copy"
+                  >
+                    {inviteSuccess.password}
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={closeInviteModal}
+                className="w-full py-2 rounded-lg bg-[#21262d] hover:bg-[#2d333b] text-[#e6edf3] text-sm transition-colors"
+              >
+                Done
+              </button>
             </div>
           ) : (
             <div className="space-y-4">
-              <Field label="Full name">
-                <input className={inputCls} value={inviteForm.full_name}
-                  onChange={e => setInviteForm(f => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Priya Mehta" autoFocus />
+              <Field label="Role *">
+                <div className="grid grid-cols-2 gap-2">
+                  {(['founder', 'employee'] as const).map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setInviteForm(f => ({ ...f, role: r, person_id: '' }))}
+                      className={cn(
+                        'text-sm py-2 rounded-lg border transition-colors capitalize',
+                        inviteForm.role === r
+                          ? 'border-[#58a6ff] bg-[#58a6ff]/10 text-[#e6edf3]'
+                          : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3]'
+                      )}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
               </Field>
+
+              {inviteForm.role === 'employee' ? (
+                <Field label="Link to person *">
+                  <select
+                    className={inputCls}
+                    value={inviteForm.person_id}
+                    onChange={e => setInviteForm(f => ({ ...f, person_id: e.target.value }))}
+                  >
+                    <option value="">Select a person…</option>
+                    {invitablePeople.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} · {p.role}</option>
+                    ))}
+                  </select>
+                  {invitablePeople.length === 0 && (
+                    <p className="text-[11px] text-[#6e7681] mt-1.5">
+                      No unlinked active people. Add one above first.
+                    </p>
+                  )}
+                  {inviteForm.person_id && (
+                    <p className="text-[11px] text-[#8b949e] mt-1.5">
+                      Display name will use {(invitablePeople.find(p => p.id === inviteForm.person_id))?.name ?? '—'}.
+                    </p>
+                  )}
+                </Field>
+              ) : (
+                <Field label="Full name">
+                  <input className={inputCls} value={inviteForm.full_name}
+                    onChange={e => setInviteForm(f => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Priya Mehta" />
+                </Field>
+              )}
+
               <Field label="Email *">
                 <input type="email" className={inputCls} value={inviteForm.email}
                   onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
                   placeholder="priya@l3labs.com" />
               </Field>
+              <Field label="Initial password *">
+                <div className="relative">
+                  <input
+                    type={showInvitePassword ? 'text' : 'password'}
+                    className={cn(inputCls, 'pr-16')}
+                    value={inviteForm.password}
+                    onChange={e => setInviteForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Min 8 chars"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowInvitePassword(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#8b949e] hover:text-[#e6edf3] px-1.5 py-0.5"
+                  >
+                    {showInvitePassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#6e7681] mt-1.5">
+                  Share this with them — they can change it later.
+                </p>
+              </Field>
+
               {inviteMutation.isError && (
                 <p className="text-xs text-[#e24b4a] bg-[#e24b4a]/10 border border-[#e24b4a]/20 px-3 py-2 rounded-lg">
-                  Could not send invite. Make sure the Supabase service role key is configured.
+                  {(inviteMutation.error as Error)?.message ?? 'Create failed.'}
                 </p>
               )}
               <div className="flex gap-2 pt-1">
                 <button
                   className="flex-1 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-sm transition-colors disabled:opacity-50"
                   onClick={() => inviteMutation.mutate()}
-                  disabled={!inviteForm.email || inviteMutation.isPending}
+                  disabled={
+                    !inviteForm.email ||
+                    inviteForm.password.length < 8 ||
+                    inviteMutation.isPending ||
+                    (inviteForm.role === 'employee' && !inviteForm.person_id)
+                  }
                 >
-                  {inviteMutation.isPending ? 'Sending…' : 'Send invite'}
+                  {inviteMutation.isPending ? 'Creating…' : 'Create user'}
                 </button>
                 <button
                   className="px-4 py-2 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors"
-                  onClick={() => setShowInvite(false)}
+                  onClick={closeInviteModal}
                 >
                   Cancel
                 </button>
