@@ -32,6 +32,8 @@ export default function PersonPage() {
     queryFn: getMyProfile,
     staleTime: 300_000,
   })
+  // Role gate — employees must not see any financial details on this page.
+  const isFounder = myProfile?.role === 'founder'
 
   const { data: person, isLoading: loadingPerson } = useQuery({
     queryKey: ['person', id],
@@ -198,12 +200,12 @@ export default function PersonPage() {
         <PersonTimePanel personId={id} />
 
         {/* Founder-only: add / edit this person's daily hours on any date */}
-        {myProfile && myProfile.role === 'founder' && (
+        {isFounder && (
           <section>
             <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
               <Pencil className="h-3.5 w-3.5" /> Edit daily log
             </h2>
-            <DailyLogEditor personId={id} userId={myProfile.id} isFounder />
+            <DailyLogEditor personId={id} userId={myProfile.id} allowPastDates />
           </section>
         )}
 
@@ -283,7 +285,7 @@ export default function PersonPage() {
                       <p className="text-xs font-medium text-[#8b949e]">
                         {a.capacity_percent}% · {workingDays(a.start_date, a.end_date, a.capacity_percent)}d / {workingHours(a.start_date, a.end_date, a.capacity_percent)}h
                       </p>
-                      {allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate) != null && (
+                      {isFounder && allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate) != null && (
                         <p className="text-[11px] text-[#1d9e75] font-medium mt-0.5">
                           {formatCost(allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate)!)}
                         </p>
@@ -311,10 +313,15 @@ export default function PersonPage() {
             <div className="flex items-center gap-2.5">
               <Clock className="h-4 w-4 text-[#6e7681]" />
               <p className="text-sm text-[#8b949e]">
-                <span className="font-medium text-[#c9d1d9]">{completedAllocs.length}</span> completed project{completedAllocs.length !== 1 ? 's' : ''} · Total value{' '}
-                <span className="font-medium text-[#c9d1d9]">
-                  {formatINR(completedAllocs.reduce((s, a) => s + (a.projects?.sales_value ?? 0), 0))}
-                </span>
+                <span className="font-medium text-[#c9d1d9]">{completedAllocs.length}</span> completed project{completedAllocs.length !== 1 ? 's' : ''}
+                {isFounder && (
+                  <>
+                    {' · '}Total value{' '}
+                    <span className="font-medium text-[#c9d1d9]">
+                      {formatINR(completedAllocs.reduce((s, a) => s + (a.projects?.sales_value ?? 0), 0))}
+                    </span>
+                  </>
+                )}
               </p>
             </div>
           </div>

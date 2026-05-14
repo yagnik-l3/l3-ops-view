@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { getMyProfile } from '@/lib/queries/profile'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, Pencil, UserPlus, X, Check } from 'lucide-react'
-import type { Person, PersonType, UserProfile } from '@/lib/supabase/types'
+import { Plus, Pencil, UserPlus, X, Check, Ban, ShieldCheck, Trash2 } from 'lucide-react'
+import type { Person, PersonType } from '@/lib/supabase/types'
+import type { ManagedUser } from '@/app/api/users/route'
 import { cn } from '@/lib/utils'
 
 const AVATAR_COLORS = [
@@ -61,6 +62,11 @@ export default function SettingsPage() {
   }>({ email: '', full_name: '', role: 'founder', person_id: '', password: '' })
   const [inviteSuccess, setInviteSuccess] = useState<{ email: string; password: string } | null>(null)
   const [showInvitePassword, setShowInvitePassword] = useState(false)
+  const [editMemberId, setEditMemberId] = useState<string | null>(null)
+  const [editMemberForm, setEditMemberForm] = useState<{
+    full_name: string; role: 'founder' | 'employee'; person_id: string
+  }>({ full_name: '', role: 'founder', person_id: '' })
+  const [confirmDeleteMember, setConfirmDeleteMember] = useState(false)
 
   const { data: people, isLoading } = useQuery({
     queryKey: ['people_all'],
@@ -74,11 +80,21 @@ export default function SettingsPage() {
   const { data: teamProfiles } = useQuery({
     queryKey: ['team_profiles'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('user_profiles').select('*')
-      if (error) throw error
-      return data as UserProfile[]
+      const res = await fetch('/api/users')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Failed to load members (${res.status})`)
+      }
+      const { users } = (await res.json()) as { users: ManagedUser[] }
+      return users
     },
   })
+
+  const { data: myProfile } = useQuery({
+    queryKey: ['my_profile'],
+    queryFn: getMyProfile,
+  })
+  const myUserId = myProfile?.id ?? null
 
   const createPersonMutation = useMutation({
     mutationFn: async () => {
@@ -161,6 +177,60 @@ export default function SettingsPage() {
     },
   })
 
+  const editMemberMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/users/${editMemberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: editMemberForm.role === 'founder' ? editMemberForm.full_name : null,
+          role: editMemberForm.role,
+          person_id: editMemberForm.role === 'employee' ? editMemberForm.person_id : null,
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Save failed (${res.status})`)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team_profiles'] })
+      setEditMemberId(null)
+    },
+  })
+
+  const banMemberMutation = useMutation({
+    mutationFn: async ({ id, banned }: { id: string; banned: boolean }) => {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ banned }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Action failed (${res.status})`)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team_profiles'] })
+    },
+  })
+
+  const deleteMemberMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Delete failed (${res.status})`)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team_profiles'] })
+      setEditMemberId(null)
+      setConfirmDeleteMember(false)
+    },
+  })
+
   function closeInviteModal() {
     setShowInvite(false)
     setInviteSuccess(null)
@@ -171,6 +241,26 @@ export default function SettingsPage() {
   // People available for employee invite: active + not already linked.
   const linkedPersonIds = new Set((teamProfiles ?? []).map(p => p.person_id).filter(Boolean) as string[])
   const invitablePeople = (people ?? []).filter(p => p.is_active && !linkedPersonIds.has(p.id))
+
+  const editMember = (teamProfiles ?? []).find(m => m.id === editMemberId) ?? null
+  // People selectable when re-linking an employee: active + unlinked, plus the
+  // one this member is already linked to.
+  const editablePeople = (people ?? []).filter(
+    p => p.is_active && (!linkedPersonIds.has(p.id) || p.id === editMember?.person_id)
+  )
+
+  function openEditMember(m: ManagedUser) {
+    setEditMemberForm({
+      full_name: m.full_name ?? '',
+      role: m.role === 'employee' ? 'employee' : 'founder',
+      person_id: m.person_id ?? '',
+    })
+    setConfirmDeleteMember(false)
+    editMemberMutation.reset()
+    banMemberMutation.reset()
+    deleteMemberMutation.reset()
+    setEditMemberId(m.id)
+  }
 
   function openEdit(person: Person) {
     setPersonForm({
@@ -278,20 +368,36 @@ export default function SettingsPage() {
           </button>
         </div>
         <div className="space-y-1">
-          {(teamProfiles ?? []).map(p => {
-            const linkedPerson = p.person_id ? (people ?? []).find(pp => pp.id === p.person_id) : null
-            const isFounder = p.role === 'founder'
+          {(teamProfiles ?? []).map(m => {
+            const linkedPerson = m.person_id ? (people ?? []).find(pp => pp.id === m.person_id) : null
+            const isFounder = m.role === 'founder'
+            const isSelf = m.id === myUserId
             return (
-              <div key={p.id} className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#21262d]/60 transition-colors">
-                <div className="h-8 w-8 rounded-full bg-[#21262d] border border-[#30363d] flex items-center justify-center text-[#8b949e] text-xs font-medium">
-                  {p.full_name?.slice(0, 2).toUpperCase() ?? '??'}
+              <div
+                key={m.id}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#21262d]/60 transition-colors',
+                  m.banned && 'opacity-50'
+                )}
+              >
+                <div className="h-8 w-8 rounded-full bg-[#21262d] border border-[#30363d] flex items-center justify-center text-[#8b949e] text-xs font-medium shrink-0">
+                  {m.full_name?.slice(0, 2).toUpperCase() ?? '??'}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#e6edf3] truncate">{p.full_name ?? 'Unnamed'}</p>
-                  {linkedPerson && (
-                    <p className="text-xs text-[#6e7681] truncate">→ {linkedPerson.name}</p>
-                  )}
+                  <p className="text-sm font-medium text-[#e6edf3] truncate">
+                    {m.full_name ?? 'Unnamed'}
+                    {isSelf && <span className="ml-1.5 text-[10px] text-[#6e7681]">(you)</span>}
+                  </p>
+                  <p className="text-xs text-[#6e7681] truncate">
+                    {m.email ?? 'no email'}
+                    {linkedPerson && <> · &rarr; {linkedPerson.name}</>}
+                  </p>
                 </div>
+                {m.banned && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border bg-[#e24b4a]/10 text-[#e24b4a] border-[#e24b4a]/20">
+                    Banned
+                  </span>
+                )}
                 <span className={cn(
                   'text-[10px] px-2 py-0.5 rounded-full border',
                   isFounder
@@ -300,6 +406,27 @@ export default function SettingsPage() {
                 )}>
                   {isFounder ? 'Founder' : 'Employee'}
                 </span>
+                {!isSelf && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => banMemberMutation.mutate({ id: m.id, banned: !m.banned })}
+                      disabled={banMemberMutation.isPending}
+                      title={m.banned ? 'Unban user' : 'Ban user'}
+                      className="p-1.5 text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] rounded transition-colors disabled:opacity-50"
+                    >
+                      {m.banned
+                        ? <ShieldCheck className="h-3.5 w-3.5" />
+                        : <Ban className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => openEditMember(m)}
+                      title="Edit user"
+                      className="p-1.5 text-[#6e7681] hover:text-[#e6edf3] hover:bg-[#21262d] rounded transition-colors"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -561,6 +688,162 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* Edit member modal */}
+      {editMember && (
+        <Modal
+          title="Edit member"
+          onClose={() => { setEditMemberId(null); setConfirmDeleteMember(false) }}
+        >
+          <div className="space-y-4">
+            <Field label="Role *">
+              <div className="grid grid-cols-2 gap-2">
+                {(['founder', 'employee'] as const).map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setEditMemberForm(f => ({ ...f, role: r }))}
+                    className={cn(
+                      'text-sm py-2 rounded-lg border transition-colors capitalize',
+                      editMemberForm.role === r
+                        ? 'border-[#58a6ff] bg-[#58a6ff]/10 text-[#e6edf3]'
+                        : 'border-[#30363d] text-[#8b949e] hover:text-[#e6edf3]'
+                    )}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {editMemberForm.role === 'employee' ? (
+              <Field label="Link to person *">
+                <select
+                  className={inputCls}
+                  value={editMemberForm.person_id}
+                  onChange={e => setEditMemberForm(f => ({ ...f, person_id: e.target.value }))}
+                >
+                  <option value="">Select a person…</option>
+                  {editablePeople.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} · {p.role}</option>
+                  ))}
+                </select>
+                {editablePeople.length === 0 && (
+                  <p className="text-[11px] text-[#6e7681] mt-1.5">
+                    No unlinked active people. Add one above first.
+                  </p>
+                )}
+                {editMemberForm.person_id && (
+                  <p className="text-[11px] text-[#8b949e] mt-1.5">
+                    Display name will use {editablePeople.find(p => p.id === editMemberForm.person_id)?.name ?? '—'}.
+                  </p>
+                )}
+              </Field>
+            ) : (
+              <Field label="Full name">
+                <input
+                  className={inputCls}
+                  value={editMemberForm.full_name}
+                  onChange={e => setEditMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                  placeholder="Priya Mehta"
+                />
+              </Field>
+            )}
+
+            {editMemberMutation.isError && (
+              <p className="text-xs text-[#e24b4a] bg-[#e24b4a]/10 border border-[#e24b4a]/20 px-3 py-2 rounded-lg">
+                {(editMemberMutation.error as Error)?.message ?? 'Save failed.'}
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                className="flex-1 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-sm transition-colors disabled:opacity-50"
+                onClick={() => editMemberMutation.mutate()}
+                disabled={
+                  editMemberMutation.isPending ||
+                  (editMemberForm.role === 'employee' && !editMemberForm.person_id)
+                }
+              >
+                {editMemberMutation.isPending ? 'Saving…' : 'Save changes'}
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors"
+                onClick={() => { setEditMemberId(null); setConfirmDeleteMember(false) }}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Danger zone */}
+            <div className="border-t border-[#30363d] pt-4 space-y-3">
+              <p className="text-[11px] uppercase tracking-wide text-[#6e7681]">Danger zone</p>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-[#e6edf3]">{editMember.banned ? 'User is banned' : 'Ban user'}</p>
+                  <p className="text-[11px] text-[#6e7681]">
+                    {editMember.banned
+                      ? 'They cannot sign in. Unban to restore access.'
+                      : 'Blocks sign-in but keeps the account and data.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => banMemberMutation.mutate({ id: editMember.id, banned: !editMember.banned })}
+                  disabled={banMemberMutation.isPending}
+                  className={cn(
+                    'text-xs px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 shrink-0',
+                    editMember.banned
+                      ? 'border-[#1d9e75]/30 text-[#1d9e75] hover:bg-[#1d9e75]/10'
+                      : 'border-[#e2a23b]/30 text-[#e2a23b] hover:bg-[#e2a23b]/10'
+                  )}
+                >
+                  {banMemberMutation.isPending ? '…' : editMember.banned ? 'Unban' : 'Ban'}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-[#e6edf3]">Delete user</p>
+                  <p className="text-[11px] text-[#6e7681]">
+                    Permanently removes their login and access. Cannot be undone.
+                  </p>
+                </div>
+                {confirmDeleteMember ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => deleteMemberMutation.mutate(editMember.id)}
+                      disabled={deleteMemberMutation.isPending}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-[#e24b4a] hover:bg-[#f0504f] text-white transition-colors disabled:opacity-50"
+                    >
+                      {deleteMemberMutation.isPending ? 'Deleting…' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteMember(false)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteMember(true)}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#e24b4a]/30 text-[#e24b4a] hover:bg-[#e24b4a]/10 transition-colors shrink-0"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                )}
+              </div>
+
+              {(banMemberMutation.isError || deleteMemberMutation.isError) && (
+                <p className="text-xs text-[#e24b4a] bg-[#e24b4a]/10 border border-[#e24b4a]/20 px-3 py-2 rounded-lg">
+                  {((banMemberMutation.error || deleteMemberMutation.error) as Error)?.message ?? 'Action failed.'}
+                </p>
+              )}
+            </div>
+          </div>
         </Modal>
       )}
     </div>

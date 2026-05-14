@@ -635,16 +635,18 @@ export default function ProjectPage() {
             <h2 className="text-xs font-semibold text-[#6e7681] uppercase tracking-widest">
               Team & allocations
             </h2>
-            <button
-              onClick={() => {
-                setAllocForm(f => ({ ...f, person_id: '', hourly_rate: '' }))
-                setShowAddAlloc(v => !v)
-              }}
-              className="flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#58a6ff] transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Assign person
-            </button>
+            {isFounder && (
+              <button
+                onClick={() => {
+                  setAllocForm(f => ({ ...f, person_id: '', hourly_rate: '' }))
+                  setShowAddAlloc(v => !v)
+                }}
+                className="flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#58a6ff] transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Assign person
+              </button>
+            )}
           </div>
 
           {/* Add allocation form */}

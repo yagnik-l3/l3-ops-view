@@ -7,10 +7,9 @@ interface LogClientProps {
   personId: string
   userId: string
   fullName: string | null
-  isFounder: boolean
 }
 
-export function LogClient({ personId, userId, fullName, isFounder }: LogClientProps) {
+export function LogClient({ personId, userId, fullName }: LogClientProps) {
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto">
       <header className="mb-6">
@@ -20,7 +19,7 @@ export function LogClient({ personId, userId, fullName, isFounder }: LogClientPr
 
       <AllocatedProjectsPanel personId={personId} />
 
-      <DailyLogEditor personId={personId} userId={userId} isFounder={isFounder} />
+      <DailyLogEditor personId={personId} userId={userId} />
     </div>
   )
 }

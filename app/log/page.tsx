@@ -47,7 +47,6 @@ export default async function LogPage() {
       personId={profile.person_id}
       userId={user.id}
       fullName={profile.full_name ?? null}
-      isFounder={profile.role === 'founder'}
     />
   )
 }
