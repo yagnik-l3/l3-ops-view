@@ -21,6 +21,24 @@ export async function getAllocationProjectsForDate(personId: string, date: strin
   return (data ?? []) as Array<Allocation & { projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'> }>
 }
 
+export type AllocationWithDeadline = Allocation & {
+  projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color' | 'start_date' | 'target_end_date' | 'actual_end_date'> | null
+}
+
+/** Current + upcoming allocations for a person (allocation end_date today or later),
+ *  joined with project deadline fields. Powers the "Your projects" panel on /log. */
+export async function getActivePersonAllocations(personId: string, today: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('allocations')
+    .select('id, project_id, start_date, end_date, capacity_percent, projects(id, name, client_name, status, color, start_date, target_end_date, actual_end_date)')
+    .eq('person_id', personId)
+    .gte('end_date', today)
+    .order('end_date', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as AllocationWithDeadline[]
+}
+
 export async function getEntriesForDate(personId: string, date: string) {
   const supabase = createClient()
   const { data, error } = await supabase

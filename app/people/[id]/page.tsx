@@ -15,8 +15,10 @@ import {
 } from '@/lib/utils/timeline'
 import type { Person, Allocation, Project } from '@/lib/supabase/types'
 import { format } from 'date-fns'
-import { ArrowLeft, Briefcase, CalendarRange, Clock } from 'lucide-react'
+import { ArrowLeft, Briefcase, CalendarRange, Clock, Pencil } from 'lucide-react'
 import { PersonTimePanel } from '@/components/people/PersonTimePanel'
+import { DailyLogEditor } from '@/components/time/DailyLogEditor'
+import { getMyProfile } from '@/lib/queries/profile'
 
 type AllocWithProject = Allocation & { projects: Project }
 
@@ -24,6 +26,12 @@ export default function PersonPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const supabase = createClient()
+
+  const { data: myProfile } = useQuery({
+    queryKey: ['my_profile'],
+    queryFn: getMyProfile,
+    staleTime: 300_000,
+  })
 
   const { data: person, isLoading: loadingPerson } = useQuery({
     queryKey: ['person', id],
@@ -188,6 +196,16 @@ export default function PersonPage() {
 
         {/* Time logged from daily entries */}
         <PersonTimePanel personId={id} />
+
+        {/* Founder-only: add / edit this person's daily hours on any date */}
+        {myProfile && myProfile.role === 'founder' && (
+          <section>
+            <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Pencil className="h-3.5 w-3.5" /> Edit daily log
+            </h2>
+            <DailyLogEditor personId={id} userId={myProfile.id} isFounder />
+          </section>
+        )}
 
         {/* Active projects */}
         {activeAllocs.length > 0 && (

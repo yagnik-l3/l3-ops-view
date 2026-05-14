@@ -16,6 +16,7 @@ import { ArrowLeft, Plus, Trash2, Pencil, Check, X, TrendingUp, TrendingDown, Al
 import { format, addWeeks, parseISO } from 'date-fns'
 import { AddTransactionDialog } from '@/components/finance/AddTransactionDialog'
 import { ProjectTimePanel } from '@/components/projects/ProjectTimePanel'
+import { getMyProfile } from '@/lib/queries/profile'
 
 const PALETTE = [
   '#1d9e75', '#378add', '#8b5cf6', '#ef9f27', '#ec4899',
@@ -82,6 +83,14 @@ export default function ProjectPage() {
     notes: '',
   })
 
+  // Role gate — employees must not see any financial details on this page.
+  const { data: myProfile } = useQuery({
+    queryKey: ['my_profile'],
+    queryFn: getMyProfile,
+    staleTime: 300_000,
+  })
+  const isFounder = myProfile?.role === 'founder'
+
   const { data: project, isLoading: loadingProject } = useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
@@ -125,6 +134,7 @@ export default function ProjectPage() {
       if (error) throw error
       return data as Transaction[]
     },
+    enabled: isFounder,
   })
 
   useEffect(() => {
@@ -455,11 +465,13 @@ export default function ProjectPage() {
         </div>
 
         {/* Deal value highlight */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-4 text-center">
-            <p className="text-xl font-bold text-[#e6edf3]">{formatINR(project.sales_value)}</p>
-            <p className="text-xs text-[#6e7681] mt-1">Deal value</p>
-          </div>
+        <div className={cn('grid gap-4', isFounder ? 'grid-cols-3' : 'grid-cols-2')}>
+          {isFounder && (
+            <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-4 text-center">
+              <p className="text-xl font-bold text-[#e6edf3]">{formatINR(project.sales_value)}</p>
+              <p className="text-xs text-[#6e7681] mt-1">Deal value</p>
+            </div>
+          )}
           <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-4 text-center">
             <p className={cn('text-xl font-bold', isOverdue ? 'text-[#e24b4a]' : 'text-[#e6edf3]')}>
               {project.target_end_date ? formatDate(project.target_end_date, 'dd MMM') : '—'}
@@ -514,17 +526,19 @@ export default function ProjectPage() {
               )}
             </Field>
 
-            <Field label="Deal value (₹)">
-              {editing ? (
-                <input type="number"
-                  className="w-full text-sm bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
-                  value={form.sales_value ?? ''}
-                  onChange={e => setForm(f => ({ ...f, sales_value: parseFloat(e.target.value) || 0 }))}
-                />
-              ) : (
-                <p className="text-sm font-medium text-[#c9d1d9]">{formatINR(project.sales_value)}</p>
-              )}
-            </Field>
+            {isFounder && (
+              <Field label="Deal value (₹)">
+                {editing ? (
+                  <input type="number"
+                    className="w-full text-sm bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                    value={form.sales_value ?? ''}
+                    onChange={e => setForm(f => ({ ...f, sales_value: parseFloat(e.target.value) || 0 }))}
+                  />
+                ) : (
+                  <p className="text-sm font-medium text-[#c9d1d9]">{formatINR(project.sales_value)}</p>
+                )}
+              </Field>
+            )}
 
             <Field label="Est. weeks">
               {editing ? (
@@ -696,27 +710,29 @@ export default function ProjectPage() {
                   onChange={e => setAllocForm(f => ({ ...f, capacity_percent: parseInt(e.target.value) }))}
                 />
               </div>
-              <div>
-                <label className="text-xs text-[#8b949e] block mb-1.5">
-                  Hourly rate (₹/h)
-                  <span className="ml-1 text-[#6e7681]">— pre-filled from person's default, override if needed</span>
-                </label>
-                <input type="number"
-                  className="w-full text-sm border border-[#30363d] rounded-md px-3 py-1.5 bg-[#21262d] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
-                  value={allocForm.hourly_rate}
-                  onChange={e => setAllocForm(f => ({ ...f, hourly_rate: e.target.value }))}
-                  placeholder="e.g. 2500"
-                />
-                {allocForm.hourly_rate && allocForm.start_date && allocForm.end_date && (
-                  <p className="text-[11px] text-[#8b949e] mt-1">
-                    {workingDays(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent)}d ·{' '}
-                    {workingHours(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent)}h ·{' '}
-                    <span className="text-[#1d9e75] font-medium">
-                      {formatCost(workingHours(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent) * parseFloat(allocForm.hourly_rate || '0'))}
-                    </span> est. cost
-                  </p>
-                )}
-              </div>
+              {isFounder && (
+                <div>
+                  <label className="text-xs text-[#8b949e] block mb-1.5">
+                    Hourly rate (₹/h)
+                    <span className="ml-1 text-[#6e7681]">— pre-filled from person's default, override if needed</span>
+                  </label>
+                  <input type="number"
+                    className="w-full text-sm border border-[#30363d] rounded-md px-3 py-1.5 bg-[#21262d] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
+                    value={allocForm.hourly_rate}
+                    onChange={e => setAllocForm(f => ({ ...f, hourly_rate: e.target.value }))}
+                    placeholder="e.g. 2500"
+                  />
+                  {allocForm.hourly_rate && allocForm.start_date && allocForm.end_date && (
+                    <p className="text-[11px] text-[#8b949e] mt-1">
+                      {workingDays(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent)}d ·{' '}
+                      {workingHours(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent)}h ·{' '}
+                      <span className="text-[#1d9e75] font-medium">
+                        {formatCost(workingHours(allocForm.start_date, allocForm.end_date, allocForm.capacity_percent) * parseFloat(allocForm.hourly_rate || '0'))}
+                      </span> est. cost
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => addAllocMutation.mutate()}
@@ -799,7 +815,7 @@ export default function ProjectPage() {
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className={cn('grid gap-3', isFounder ? 'grid-cols-2' : 'grid-cols-1')}>
                           <div>
                             <label className="text-[11px] text-[#8b949e] block mb-1">
                               Capacity %
@@ -828,24 +844,26 @@ export default function ProjectPage() {
                               </p>
                             )}
                           </div>
-                          <div>
-                            <label className="text-[11px] text-[#8b949e] block mb-1">
-                              Hourly rate (₹/h)
-                              {!a.hourly_rate && a.people?.default_hourly_rate && (
-                                <span className="ml-1 text-[#484f58]">default: ₹{a.people.default_hourly_rate}</span>
-                              )}
-                            </label>
-                            <input
-                              type="number"
-                              className="w-full text-sm border border-[#30363d] rounded-md px-2 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
-                              value={editAllocForm.hourly_rate}
-                              onChange={e => setEditAllocForm(f => ({ ...f, hourly_rate: e.target.value }))}
-                              placeholder={a.people?.default_hourly_rate ? `${a.people.default_hourly_rate} (default)` : 'e.g. 500'}
-                            />
-                          </div>
+                          {isFounder && (
+                            <div>
+                              <label className="text-[11px] text-[#8b949e] block mb-1">
+                                Hourly rate (₹/h)
+                                {!a.hourly_rate && a.people?.default_hourly_rate && (
+                                  <span className="ml-1 text-[#484f58]">default: ₹{a.people.default_hourly_rate}</span>
+                                )}
+                              </label>
+                              <input
+                                type="number"
+                                className="w-full text-sm border border-[#30363d] rounded-md px-2 py-1.5 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
+                                value={editAllocForm.hourly_rate}
+                                onChange={e => setEditAllocForm(f => ({ ...f, hourly_rate: e.target.value }))}
+                                placeholder={a.people?.default_hourly_rate ? `${a.people.default_hourly_rate} (default)` : 'e.g. 500'}
+                              />
+                            </div>
+                          )}
                         </div>
                         {/* Preview — uses the currently edited date range */}
-                        {(editAllocForm.hourly_rate || effRate) && editAllocForm.start_date && editAllocForm.end_date && (
+                        {isFounder && (editAllocForm.hourly_rate || effRate) && editAllocForm.start_date && editAllocForm.end_date && (
                           <p className="text-[11px] text-[#8b949e]">
                             {workingDays(editAllocForm.start_date, editAllocForm.end_date, editAllocForm.capacity_percent)}d ·{' '}
                             {workingHours(editAllocForm.start_date, editAllocForm.end_date, editAllocForm.capacity_percent)}h ·{' '}
@@ -902,10 +920,10 @@ export default function ProjectPage() {
                             </span>
                             <span className="mx-1.5">·</span>
                             {days}d / {hours}h
-                            {cost != null && (
+                            {isFounder && cost != null && (
                               <span className="ml-1.5 text-[#1d9e75] font-medium">{formatCost(cost)}</span>
                             )}
-                            {effRate != null && (
+                            {isFounder && effRate != null && (
                               <span className="ml-1 text-[#3d444d]">
                                 @ ₹{effRate}/h{a.hourly_rate == null ? ' (default)' : ''}
                               </span>
@@ -953,8 +971,8 @@ export default function ProjectPage() {
         {/* Time logged from daily entries */}
         <ProjectTimePanel projectId={id} />
 
-        {/* Project economics — hourly + salary */}
-        {(() => {
+        {/* Project economics — hourly + salary (founder-only) */}
+        {isFounder && (() => {
           const allAllocs = allocations ?? []
           const revenue   = project.sales_value ?? 0
 
@@ -1039,8 +1057,8 @@ export default function ProjectPage() {
           )
         })()}
 
-        {/* ── Billing & Collections ── */}
-        {(() => {
+        {/* ── Billing & Collections ── (founder-only) */}
+        {isFounder && (() => {
           const salesValue = project.sales_value ?? 0
           if (salesValue <= 0) return null
           const collections = projectCollections ?? []
