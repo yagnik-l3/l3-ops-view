@@ -146,6 +146,42 @@ function dateIso(d: Date): string {
 }
 
 /**
+ * Planned cost only: salary share for the (capacity_percent / 100) of each
+ * working day in the allocation × month overlap. Ignores any logged hours.
+ * Use this to answer "what was this allocation supposed to cost?".
+ */
+export function plannedAllocationCost(
+  alloc: { start_date: string; end_date: string; capacity_percent: number },
+  monthlySalary: number | null,
+  monthStart: string,
+  monthEnd: string,
+): number {
+  if (monthlySalary == null) return 0
+
+  const overlapStart = alloc.start_date > monthStart ? alloc.start_date : monthStart
+  const overlapEnd = alloc.end_date < monthEnd ? alloc.end_date : monthEnd
+  if (overlapStart > overlapEnd) return 0
+
+  const start = new Date(overlapStart + 'T00:00:00')
+  const end = new Date(overlapEnd + 'T00:00:00')
+
+  let totalCost = 0
+  const cur = new Date(start)
+  while (cur <= end) {
+    if (isWorkingDay(cur)) {
+      const year = cur.getFullYear()
+      const month = cur.getMonth() + 1
+      const monthDays = workingDaysInMonth(year, month)
+      if (monthDays > 0) {
+        totalCost += (alloc.capacity_percent / 100 / monthDays) * monthlySalary
+      }
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+  return Math.round(totalCost)
+}
+
+/**
  * Daily hybrid cost: for each working day in the allocation × month overlap,
  * if actual hours were logged that day for (person, project), cost the day at
  * (actual_hours / 8 / month_working_days) × monthly_salary; otherwise cost it
