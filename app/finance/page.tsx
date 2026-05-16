@@ -556,9 +556,9 @@ export default function FinancePage() {
           icon={m_.netProfit >= 0 ? TrendingUp : TrendingDown}
         />
         <KpiCard
-          label="Planned Dev Cost"
+          label="Forecast Dev Cost"
           value={formatINR(m_.totalPlannedCost)}
-          sub={`${Math.round(m_.totalPlannedHours)}h allocated`}
+          sub={`${Math.round(m_.totalPlannedHours)}h allocated · from allocations`}
           accent="default"
           icon={Activity}
         />
@@ -566,16 +566,16 @@ export default function FinancePage() {
           label="Actual Dev Cost"
           value={formatINR(m_.totalActualCost)}
           sub={`${Math.round(m_.totalActualHours)}h logged${m_.totalPlannedHours > 0
-            ? ` · ${Math.round((m_.totalActualHours / m_.totalPlannedHours) * 100)}% of plan`
+            ? ` · ${Math.round((m_.totalActualHours / m_.totalPlannedHours) * 100)}% of forecast`
             : ''}`}
           accent={m_.totalActualCost > m_.totalPlannedCost ? 'amber' : 'default'}
           icon={Activity}
         />
         <KpiCard
-          label="Real Bench Cost"
+          label="Bench Cost"
           value={formatINR(m_.realBench)}
           sub={`Payroll − actuals${m_.plannedBench !== m_.realBench
-            ? ` · planned ${formatINR(m_.plannedBench)}`
+            ? ` · forecast ${formatINR(m_.plannedBench)}`
             : ''}`}
           accent={m_.realBench > 0 ? 'amber' : 'green'}
           icon={Ban}
@@ -695,13 +695,13 @@ export default function FinancePage() {
         hoursByDay={hoursByDay}
       />
 
-      {/* ── Projects Table — Revenue vs Planned vs Actual ── */}
+      {/* ── Projects Table — Revenue vs Forecast vs Actual ── */}
       <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
         <div className="px-5 py-4 border-b border-[#30363d] flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-medium text-[#e6edf3]">Project Revenue · Planned vs Actual Cost</h2>
+            <h2 className="text-sm font-medium text-[#e6edf3]">Project Revenue · Forecast vs Actual Cost</h2>
             <p className="text-xs text-[#6e7681] mt-0.5">
-              Planned = allocation salary share · Actual = logged hours × hourly rate · Variance = Actual − Planned
+              Forecast = salary share of allocations · Actual = salary share of logged hours · Variance = Actual − Forecast
             </p>
           </div>
           <span className="text-xs text-[#6e7681] flex-shrink-0 mt-0.5">
@@ -723,7 +723,7 @@ export default function FinancePage() {
                   <th className="text-left px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden sm:table-cell">Status</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden md:table-cell">Target End</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Revenue</th>
-                  <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Planned</th>
+                  <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Forecast</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Actual</th>
                   <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden lg:table-cell">Var.</th>
                   <th className="text-right px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Margin</th>
@@ -802,7 +802,7 @@ export default function FinancePage() {
                           {mPct !== null && (
                             <div className={cn('text-[10px] mt-0.5 tabular-nums', mPct >= 0 ? 'text-[#6e7681]' : 'text-[#E24B4A]')}>
                               {mPct}% {plannedMargin !== margin && (
-                                <span className="text-[#484f58]">· plan {revenue > 0 ? Math.round((plannedMargin / revenue) * 100) : 0}%</span>
+                                <span className="text-[#484f58]">· forecast {revenue > 0 ? Math.round((plannedMargin / revenue) * 100) : 0}%</span>
                               )}
                             </div>
                           )}
@@ -846,200 +846,12 @@ export default function FinancePage() {
         )}
       </div>
 
-      {/* ── Employee Cost Breakdown ── */}
-      {(() => {
-        const founderRows = m_.personRows.filter(r => r.person.type === 'founder')
-        const staffRows = m_.personRows.filter(r => r.person.type !== 'founder')
-        const founderSalary = founderRows.reduce((s, r) => s + r.salary, 0)
-
-        function PersonRowEl({ row, i, isFounder }: { row: PersonRow; i: number; isFounder?: boolean }) {
-          const { person, salary, plannedCost, actualCost, plannedHours, actualHours, realBench, plannedBench, actualUtilPct, plannedUtilPct, projectNames } = row
-          return (
-            <tr
-              key={person.id}
-              className={cn(
-                'border-b border-[#30363d]/60 last:border-0 hover:bg-[#21262d]/40 transition-colors',
-                i % 2 === 1 && 'bg-[#0d1117]/30',
-              )}
-            >
-              <td className="px-5 py-3">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
-                    style={{
-                      backgroundColor: (person.avatar_color ?? '#484f58') + '33',
-                      color: person.avatar_color ?? '#8b949e',
-                    }}
-                  >
-                    {person.avatar_initials ?? person.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-[#c9d1d9] truncate">{person.name}</p>
-                    <p className="text-xs text-[#6e7681] capitalize">{person.role}</p>
-                  </div>
-                </div>
-              </td>
-              <td className="px-3 py-3 text-right font-medium tabular-nums text-[#c9d1d9]">
-                {salary > 0 ? formatINR(salary) : <span className="text-[#484f58]">—</span>}
-              </td>
-              {isFounder ? (
-                <>
-                  <td className="px-3 py-3 text-right tabular-nums text-[#484f58]">—</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-[#484f58]">—</td>
-                  <td className="px-3 py-3 text-right hidden sm:table-cell text-[#484f58] text-xs">—</td>
-                  <td className="px-3 py-3 text-right">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#378add]/10 text-[#378add] border border-[#378add]/20">mgmt</span>
-                  </td>
-                  <td className="px-5 py-3 hidden lg:table-cell">
-                    <span className="text-xs text-[#484f58] italic">management</span>
-                  </td>
-                </>
-              ) : (
-                <>
-                  <td className="px-3 py-3 text-right tabular-nums text-[#8b949e]">
-                    {plannedCost > 0 ? formatINR(plannedCost) : <span className="text-[#484f58]">—</span>}
-                    {plannedHours > 0 && (
-                      <div className="text-[10px] text-[#6e7681] mt-0.5 tabular-nums">{Math.round(plannedHours)}h</div>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums">
-                    {actualCost > 0 ? (
-                      <span className="text-[#c9d1d9] font-medium">{formatINR(actualCost)}</span>
-                    ) : (
-                      <span className="text-[#484f58]">—</span>
-                    )}
-                    {actualHours > 0 && (
-                      <div className="text-[10px] text-[#6e7681] mt-0.5 tabular-nums">{Math.round(actualHours)}h</div>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right hidden sm:table-cell">
-                    {realBench > 0 ? (
-                      <>
-                        <span className="text-[#EF9F27] text-xs font-medium tabular-nums">{formatINR(realBench)}</span>
-                        {plannedBench !== realBench && (
-                          <div className="text-[10px] text-[#6e7681] mt-0.5 tabular-nums">
-                            plan {formatINR(plannedBench)}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-[#484f58] text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-2 justify-end">
-                        <div className="w-14 h-1.5 bg-[#21262d] rounded-full overflow-hidden flex-shrink-0 relative">
-                          {/* Planned bar (dashed-style ghost) */}
-                          <div
-                            className="absolute inset-y-0 left-0 border-r border-dashed"
-                            style={{
-                              width: `${plannedUtilPct}%`,
-                              borderColor: '#8b949e60',
-                              backgroundColor: '#21262d',
-                            }}
-                          />
-                          {/* Actual bar */}
-                          <div
-                            className="absolute inset-y-0 left-0 h-full rounded-full transition-all"
-                            style={{
-                              width: `${actualUtilPct}%`,
-                              backgroundColor: actualUtilPct >= 80 ? '#1D9E75' : actualUtilPct >= 40 ? '#EF9F27' : '#E24B4A',
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-[#c9d1d9] w-9 text-right tabular-nums font-medium">{actualUtilPct}%</span>
-                      </div>
-                      {plannedUtilPct !== actualUtilPct && (
-                        <span className="text-[10px] text-[#6e7681] tabular-nums">plan {plannedUtilPct}%</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 hidden lg:table-cell max-w-[240px]">
-                    {projectNames.length > 0 ? (
-                      <span className="text-xs text-[#8b949e] truncate block">{projectNames.join(', ')}</span>
-                    ) : (
-                      <span className="text-xs text-[#484f58] italic">on bench</span>
-                    )}
-                  </td>
-                </>
-              )}
-            </tr>
-          )
-        }
-
-        return (
-          <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#30363d] flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-medium text-[#e6edf3]">Employee Cost · Planned vs Actual</h2>
-                <p className="text-xs text-[#6e7681] mt-0.5">
-                  Real bench = salary not recovered by logged hours · ghost bar = planned utilization
-                </p>
-              </div>
-              <span className="text-xs font-medium text-[#8b949e] flex-shrink-0 mt-0.5 tabular-nums">{formatINR(m_.totalSalary)}</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[#30363d]">
-                    <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Employee</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Salary</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Planned</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Actual</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden sm:table-cell">Real Bench</th>
-                    <th className="text-right px-3 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide">Util.</th>
-                    <th className="text-left px-5 py-2.5 text-[11px] font-medium text-[#6e7681] uppercase tracking-wide hidden lg:table-cell">Projects</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffRows
-                    .slice()
-                    .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0))
-                    .map((row, i) => <PersonRowEl key={row.person.id} row={row} i={i} />)}
-
-                  {founderRows.length > 0 && (
-                    <>
-                      <tr className="border-b border-t border-[#30363d] bg-[#0d1117]/60">
-                        <td colSpan={7} className="px-5 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#378add]">
-                          Management / Founders — {formatINR(founderSalary)}/mo
-                        </td>
-                      </tr>
-                      {founderRows
-                        .slice()
-                        .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0))
-                        .map((row, i) => <PersonRowEl key={row.person.id} row={row} i={i} isFounder />)}
-                    </>
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-[#30363d] bg-[#0d1117]/40">
-                    <td className="px-5 py-3 text-xs font-medium text-[#6e7681]">Total</td>
-                    <td className="px-3 py-3 text-right text-sm font-bold text-[#c9d1d9] tabular-nums">{formatINR(m_.totalSalary)}</td>
-                    <td className="px-3 py-3 text-right text-sm font-medium text-[#8b949e] tabular-nums">{formatINR(m_.totalPlannedCost)}</td>
-                    <td className="px-3 py-3 text-right text-sm font-medium text-[#c9d1d9] tabular-nums">{formatINR(m_.totalActualCost)}</td>
-                    <td className="px-3 py-3 text-right hidden sm:table-cell">
-                      {m_.realBench > 0 ? (
-                        <span className="text-sm font-medium text-[#EF9F27] tabular-nums">{formatINR(m_.realBench)}</span>
-                      ) : (
-                        <span className="text-[#484f58]">—</span>
-                      )}
-                    </td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        )
-      })()}
-
       {/* ── 6-Month Trend ── */}
       <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5">
         <div className="flex items-start justify-between mb-6 flex-wrap gap-2">
           <div>
             <h2 className="text-sm font-medium text-[#e6edf3]">6-Month Trend</h2>
-            <p className="text-xs text-[#6e7681] mt-0.5">Click a month to navigate · revenue vs payroll · planned vs actual cost</p>
+            <p className="text-xs text-[#6e7681] mt-0.5">Click a month to navigate · revenue vs payroll · forecast vs actual cost</p>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-[#6e7681] flex-wrap">
             <span className="flex items-center gap-1.5">
@@ -1049,7 +861,7 @@ export default function FinancePage() {
               <span className="h-2 w-3 rounded-sm inline-block bg-[#E24B4A]" /> Payroll
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2 w-3 rounded-sm inline-block border border-dashed border-[#8b949e]" /> Planned cost
+              <span className="h-2 w-3 rounded-sm inline-block border border-dashed border-[#8b949e]" /> Forecast cost
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-3 rounded-sm inline-block bg-[#58a6ff]" /> Actual cost
@@ -1075,7 +887,7 @@ export default function FinancePage() {
                 onClick={() => setMonth(d.year, d.month)}
                 title={
                   `Revenue ${formatINR(d.totalRevenue)} · Payroll ${formatINR(d.totalSalary)}\n` +
-                  `Planned ${formatINR(d.totalPlannedCost)} · Actual ${formatINR(d.totalActualCost)}`
+                  `Forecast ${formatINR(d.totalPlannedCost)} · Actual ${formatINR(d.totalActualCost)}`
                 }
               >
                 {/* Net P/L label */}

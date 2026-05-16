@@ -21,6 +21,8 @@ interface Props {
   showWeekdayLabels?: boolean
   showMonthLabels?: boolean
   showLegend?: boolean
+  /** When provided, the cell popover shows an "Edit this day" action. */
+  onEditDay?: (iso: string) => void
 }
 
 function shade(hours: number): 0 | 1 | 2 | 3 | 4 {
@@ -48,6 +50,7 @@ export function ContributionGraph({
   showWeekdayLabels = true,
   showMonthLabels = true,
   showLegend = true,
+  onEditDay,
 }: Props) {
   const [hoveredIso, setHoveredIso] = useState<string | null>(null)
   const [pinnedIso, setPinnedIso] = useState<string | null>(null)
@@ -150,7 +153,9 @@ export function ContributionGraph({
     return { weekCols: cols, monthMarkers: markers, totalHours: totalH, byDate: dateMap }
   }, [entries, weeks, endDate])
 
-  const activeEntry = activeIso ? byDate.get(activeIso) : null
+  const activeEntry: DailyEntry | null = activeIso
+    ? byDate.get(activeIso) ?? { date: activeIso, hours: 0, projects: [] }
+    : null
 
   // Compute fixed-position style for the portal popover, flipping to keep it on screen.
   const popoverStyle = useMemo<React.CSSProperties | null>(() => {
@@ -178,7 +183,7 @@ export function ContributionGraph({
     }
   }, [cellRect])
 
-  const labelWidth = showWeekdayLabels ? 24 : 0
+  const labelWidth = showWeekdayLabels ? 30 : 0
   const monthLabelHeight = showMonthLabels ? 16 : 0
   const gridWidth = weekCols.length * (cellSize + cellGap)
   const gridHeight = 7 * (cellSize + cellGap)
@@ -205,11 +210,11 @@ export function ContributionGraph({
 
         {showWeekdayLabels && (
           <div className="absolute" style={{ left: 0, top: monthLabelHeight, width: labelWidth, height: gridHeight }}>
-            {['Mon', '', 'Wed', '', 'Fri', '', ''].map((d, i) => (
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => (
               <span
                 key={i}
-                className="absolute"
-                style={{ top: i * (cellSize + cellGap) - 1 }}
+                className="absolute leading-none"
+                style={{ top: i * (cellSize + cellGap) + (cellSize - 10) / 2 }}
               >
                 {d}
               </span>
@@ -310,9 +315,24 @@ export function ContributionGraph({
                 ))}
             </div>
           ) : (
-            <p className="text-[#6e7681]">No project breakdown.</p>
+            <p className="text-[#6e7681]">
+              {activeEntry.hours > 0 ? 'No project breakdown.' : 'No hours logged.'}
+            </p>
           )}
-          {pinnedIso === activeEntry.date && (
+          {onEditDay && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditDay(activeEntry.date)
+                setPinnedIso(null)
+              }}
+              className="mt-2 pt-2 w-full border-t border-[#21262d] text-[11px] text-[#58a6ff] hover:text-[#79b8ff] text-left transition-colors"
+            >
+              Edit this day →
+            </button>
+          )}
+          {pinnedIso === activeEntry.date && !onEditDay && (
             <p className="text-[10px] text-[#484f58] mt-2 pt-2 border-t border-[#21262d]">
               Click anywhere outside to dismiss
             </p>

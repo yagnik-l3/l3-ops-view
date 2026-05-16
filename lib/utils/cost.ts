@@ -40,7 +40,7 @@ export function workingDaysInMonth(year: number, month: number): number {
 /**
  * Returns true if a given date is a working day (Mon–Sat, excluding 2nd/4th Saturday).
  */
-function isWorkingDay(date: Date): boolean {
+export function isWorkingDay(date: Date): boolean {
   const dow = date.getDay()
   if (dow === 0) return false // Sunday
   if (dow === 6) return isWorkingSaturday(date)

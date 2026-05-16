@@ -26,6 +26,8 @@ interface DailyLogEditorProps {
    * is today-only with no past view.
    */
   allowPastDates?: boolean
+  /** Pre-select this date (yyyy-MM-dd) instead of today. Only honoured when allowPastDates is true. */
+  initialDate?: string
 }
 
 type Row = {
@@ -41,10 +43,10 @@ type Row = {
 const todayIso = () => format(new Date(), 'yyyy-MM-dd')
 const PICKABLE_STATUSES = new Set(['pipeline', 'active', 'in_production', 'on_hold', 'paused'])
 
-export function DailyLogEditor({ personId, userId, allowPastDates = false }: DailyLogEditorProps) {
+export function DailyLogEditor({ personId, userId, allowPastDates = false, initialDate }: DailyLogEditorProps) {
   const queryClient = useQueryClient()
   const supabase = createClient()
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(allowPastDates && initialDate ? initialDate : todayIso())
   const [rows, setRows] = useState<Row[]>([])
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)

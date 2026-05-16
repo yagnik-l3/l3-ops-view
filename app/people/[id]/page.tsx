@@ -1,6 +1,7 @@
 'use client'
 
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -25,7 +26,18 @@ type AllocWithProject = Allocation & { projects: Project }
 export default function PersonPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialDate = searchParams.get('date') ?? undefined
   const supabase = createClient()
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash !== '#edit-log' && !initialDate) return
+    const t = setTimeout(() => {
+      document.getElementById('edit-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
+    return () => clearTimeout(t)
+  }, [initialDate])
 
   const { data: myProfile } = useQuery({
     queryKey: ['my_profile'],
@@ -201,11 +213,11 @@ export default function PersonPage() {
 
         {/* Founder-only: add / edit this person's daily hours on any date */}
         {isFounder && (
-          <section>
+          <section id="edit-log" className="scroll-mt-6">
             <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
               <Pencil className="h-3.5 w-3.5" /> Edit daily log
             </h2>
-            <DailyLogEditor personId={id} userId={myProfile.id} allowPastDates />
+            <DailyLogEditor personId={id} userId={myProfile.id} allowPastDates initialDate={initialDate} />
           </section>
         )}
 
