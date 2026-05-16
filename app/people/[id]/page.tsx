@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
@@ -12,16 +12,16 @@ import {
   generateWeekColumns,
   calculateWeeklyLoad,
   getPersonFreeDate,
-  assignLanes,
 } from '@/lib/utils/timeline'
 import type { Person, Allocation, Project } from '@/lib/supabase/types'
 import { format } from 'date-fns'
-import { ArrowLeft, Briefcase, CalendarRange, Clock, Pencil } from 'lucide-react'
-import { PersonTimePanel } from '@/components/people/PersonTimePanel'
+import { ArrowLeft, Briefcase, CalendarRange, Activity, Clock, Pencil } from 'lucide-react'
+import { PersonActivityCalendar } from '@/components/people/PersonActivityCalendar'
 import { DailyLogEditor } from '@/components/time/DailyLogEditor'
 import { getMyProfile } from '@/lib/queries/profile'
 
 type AllocWithProject = Allocation & { projects: Project }
+type Tab = 'activity' | 'allocations'
 
 export default function PersonPage() {
   const { id } = useParams<{ id: string }>()
@@ -29,6 +29,9 @@ export default function PersonPage() {
   const searchParams = useSearchParams()
   const initialDate = searchParams.get('date') ?? undefined
   const supabase = createClient()
+
+  const [tab, setTab] = useState<Tab>('activity')
+  const [editorDate, setEditorDate] = useState<string | undefined>(initialDate)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -44,7 +47,6 @@ export default function PersonPage() {
     queryFn: getMyProfile,
     staleTime: 300_000,
   })
-  // Role gate — employees must not see any financial details on this page.
   const isFounder = myProfile?.role === 'founder'
 
   const { data: person, isLoading: loadingPerson } = useQuery({
@@ -70,7 +72,7 @@ export default function PersonPage() {
   })
 
   const weeks12 = generateWeekColumns(12)
-  const weeks1 = generateWeekColumns(1)
+  const weeks1  = generateWeekColumns(1)
 
   const thisWeekLoad = allocations ? calculateWeeklyLoad(allocations, weeks1)[0] ?? 0 : 0
   const freeFrom = allocations ? getPersonFreeDate(allocations) : null
@@ -208,137 +210,189 @@ export default function PersonPage() {
           </div>
         </div>
 
-        {/* Time logged from daily entries */}
-        <PersonTimePanel personId={id} />
-
-        {/* Founder-only: add / edit this person's daily hours on any date */}
-        {isFounder && (
-          <section id="edit-log" className="scroll-mt-6">
-            <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Pencil className="h-3.5 w-3.5" /> Edit daily log
-            </h2>
-            <DailyLogEditor personId={id} userId={myProfile.id} allowPastDates initialDate={initialDate} />
-          </section>
-        )}
-
-        {/* Active projects */}
-        {activeAllocs.length > 0 && (
-          <section>
-            <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Briefcase className="h-3.5 w-3.5" /> Active now
-            </h2>
-            <div className="space-y-2">
-              {activeAllocs.map(a => (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-4 rounded-lg border border-[#30363d] bg-[#161b22] px-4 py-3 cursor-pointer hover:border-[#58a6ff]/40 transition-colors group"
-                  onClick={() => router.push(`/projects/${a.project_id}`)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#e6edf3] truncate group-hover:text-[#58a6ff] transition-colors">
-                      {a.projects?.name}
-                    </p>
-                    <p className="text-xs text-[#6e7681] mt-0.5">{a.projects?.client_name}</p>
-                  </div>
-                  <div className="text-right shrink-0 space-y-1">
-                    <p className="text-xs font-medium text-[#c9d1d9]">{a.capacity_percent}% capacity</p>
-                    <p className="text-[10px] text-[#6e7681]">
-                      until {formatDate(a.end_date, 'dd MMM yyyy')}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Full allocation history */}
-        <section>
-          <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
-            <CalendarRange className="h-3.5 w-3.5" /> Allocation history
-            <span className="text-[#6e7681] font-normal normal-case tracking-normal text-xs">
-              ({(allocations ?? []).length} total)
+        {/* Tabs */}
+        <div className="flex items-center gap-1 border-b border-[#30363d]">
+          <TabButton active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Activity className="h-3.5 w-3.5" />}>
+            Activity
+          </TabButton>
+          <TabButton active={tab === 'allocations'} onClick={() => setTab('allocations')} icon={<CalendarRange className="h-3.5 w-3.5" />}>
+            Allocations
+            <span className="ml-1.5 text-[10px] text-[#6e7681] font-normal">
+              {(allocations ?? []).length}
             </span>
-          </h2>
-          {loadingAllocs ? (
-            <div className="space-y-2">
-              {[1,2,3].map(i => (
-                <div key={i} className="h-14 rounded-lg bg-[#161b22] animate-pulse" />
-              ))}
-            </div>
-          ) : (allocations ?? []).length === 0 ? (
-            <p className="text-sm text-[#6e7681]">No allocations recorded.</p>
-          ) : (
-            <div className="space-y-1">
-              {(allocations ?? []).map(a => {
-                const isPast = new Date(a.end_date) < new Date()
-                return (
-                  <div
-                    key={a.id}
-                    className={cn(
-                      'flex items-start gap-3 py-3 border-b border-[#21262d] last:border-0',
-                      'cursor-pointer hover:bg-[#161b22] rounded-lg px-3 transition-colors',
-                      isPast && 'opacity-50'
-                    )}
-                    onClick={() => router.push(`/projects/${a.project_id}`)}
-                  >
-                    <div className={cn(
-                      'h-1.5 w-1.5 rounded-full mt-2 shrink-0',
-                      isPast ? 'bg-[#3d444d]' : 'bg-[#1d9e75]'
-                    )} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#c9d1d9] truncate">{a.projects?.name}</p>
-                      <p className="text-xs text-[#6e7681]">{a.projects?.client_name}</p>
-                      <p className="text-xs text-[#6e7681] mt-0.5">
-                        {formatDate(a.start_date, 'dd MMM yyyy')} – {formatDate(a.end_date, 'dd MMM yyyy')}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-medium text-[#8b949e]">
-                        {a.capacity_percent}% · {workingDays(a.start_date, a.end_date, a.capacity_percent)}d / {workingHours(a.start_date, a.end_date, a.capacity_percent)}h
-                      </p>
-                      {isFounder && allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate) != null && (
-                        <p className="text-[11px] text-[#1d9e75] font-medium mt-0.5">
-                          {formatCost(allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate)!)}
-                        </p>
-                      )}
-                      <p className={cn(
-                        'text-[10px] mt-0.5 capitalize',
-                        a.projects?.status === 'active' ? 'text-[#1d9e75]' :
-                        a.projects?.status === 'in_production' ? 'text-[#378add]' :
-                        a.projects?.status === 'on_hold' ? 'text-[#d4537e]' :
-                        'text-[#6e7681]'
-                      )}>
-                        {a.projects?.status?.replace('_', ' ')}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
+          </TabButton>
+        </div>
 
-        {/* Summary footer */}
-        {completedAllocs.length > 0 && (
-          <div className="rounded-lg border border-[#30363d] bg-[#161b22] px-5 py-4">
-            <div className="flex items-center gap-2.5">
-              <Clock className="h-4 w-4 text-[#6e7681]" />
-              <p className="text-sm text-[#8b949e]">
-                <span className="font-medium text-[#c9d1d9]">{completedAllocs.length}</span> completed project{completedAllocs.length !== 1 ? 's' : ''}
-                {isFounder && (
-                  <>
-                    {' · '}Total value{' '}
-                    <span className="font-medium text-[#c9d1d9]">
-                      {formatINR(completedAllocs.reduce((s, a) => s + (a.projects?.sales_value ?? 0), 0))}
-                    </span>
-                  </>
-                )}
-              </p>
-            </div>
+        {tab === 'activity' ? (
+          <div className="space-y-8">
+            <PersonActivityCalendar
+              personId={id}
+              initialDate={initialDate}
+              onSelectDay={(iso) => setEditorDate(iso ?? undefined)}
+            />
+
+            {/* Founder-only: add / edit this person's daily hours on any date */}
+            {isFounder && myProfile && (
+              <section id="edit-log" className="scroll-mt-6">
+                <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Pencil className="h-3.5 w-3.5" /> Edit daily log
+                </h2>
+                <DailyLogEditor
+                  key={editorDate ?? 'today'}
+                  personId={id}
+                  userId={myProfile.id}
+                  allowPastDates
+                  initialDate={editorDate}
+                />
+              </section>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Active projects */}
+            {activeAllocs.length > 0 && (
+              <section>
+                <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Briefcase className="h-3.5 w-3.5" /> Active now
+                </h2>
+                <div className="space-y-2">
+                  {activeAllocs.map(a => (
+                    <div
+                      key={a.id}
+                      className="flex items-center gap-4 rounded-lg border border-[#30363d] bg-[#161b22] px-4 py-3"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#e6edf3] truncate">
+                          {a.projects?.name}
+                        </p>
+                        <p className="text-xs text-[#6e7681] mt-0.5">{a.projects?.client_name}</p>
+                      </div>
+                      <div className="text-right shrink-0 space-y-1">
+                        <p className="text-xs font-medium text-[#c9d1d9]">{a.capacity_percent}% capacity</p>
+                        <p className="text-[10px] text-[#6e7681]">
+                          until {formatDate(a.end_date, 'dd MMM yyyy')}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Full allocation history */}
+            <section>
+              <h2 className="text-sm font-semibold text-[#8b949e] uppercase tracking-widest mb-4 flex items-center gap-2">
+                <CalendarRange className="h-3.5 w-3.5" /> Allocation history
+                <span className="text-[#6e7681] font-normal normal-case tracking-normal text-xs">
+                  ({(allocations ?? []).length} total)
+                </span>
+              </h2>
+              {loadingAllocs ? (
+                <div className="space-y-2">
+                  {[1,2,3].map(i => (
+                    <div key={i} className="h-14 rounded-lg bg-[#161b22] animate-pulse" />
+                  ))}
+                </div>
+              ) : (allocations ?? []).length === 0 ? (
+                <p className="text-sm text-[#6e7681]">No allocations recorded.</p>
+              ) : (
+                <div className="space-y-1">
+                  {(allocations ?? []).map(a => {
+                    const isPast = new Date(a.end_date) < new Date()
+                    return (
+                      <div
+                        key={a.id}
+                        className={cn(
+                          'flex items-start gap-3 py-3 px-3 border-b border-[#21262d] last:border-0 rounded-lg',
+                          isPast && 'opacity-50'
+                        )}
+                      >
+                        <div className={cn(
+                          'h-1.5 w-1.5 rounded-full mt-2 shrink-0',
+                          isPast ? 'bg-[#3d444d]' : 'bg-[#1d9e75]'
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#c9d1d9] truncate">{a.projects?.name}</p>
+                          <p className="text-xs text-[#6e7681]">{a.projects?.client_name}</p>
+                          <p className="text-xs text-[#6e7681] mt-0.5">
+                            {formatDate(a.start_date, 'dd MMM yyyy')} – {formatDate(a.end_date, 'dd MMM yyyy')}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-medium text-[#8b949e]">
+                            {a.capacity_percent}% · {workingDays(a.start_date, a.end_date, a.capacity_percent)}d / {workingHours(a.start_date, a.end_date, a.capacity_percent)}h
+                          </p>
+                          {isFounder && allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate) != null && (
+                            <p className="text-[11px] text-[#1d9e75] font-medium mt-0.5">
+                              {formatCost(allocationCost(a.start_date, a.end_date, a.capacity_percent, a.hourly_rate)!)}
+                            </p>
+                          )}
+                          <p className={cn(
+                            'text-[10px] mt-0.5 capitalize',
+                            a.projects?.status === 'active' ? 'text-[#1d9e75]' :
+                            a.projects?.status === 'in_production' ? 'text-[#378add]' :
+                            a.projects?.status === 'on_hold' ? 'text-[#d4537e]' :
+                            'text-[#6e7681]'
+                          )}>
+                            {a.projects?.status?.replace('_', ' ')}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Summary footer */}
+            {completedAllocs.length > 0 && (
+              <div className="rounded-lg border border-[#30363d] bg-[#161b22] px-5 py-4">
+                <div className="flex items-center gap-2.5">
+                  <Clock className="h-4 w-4 text-[#6e7681]" />
+                  <p className="text-sm text-[#8b949e]">
+                    <span className="font-medium text-[#c9d1d9]">{completedAllocs.length}</span> completed project{completedAllocs.length !== 1 ? 's' : ''}
+                    {isFounder && (
+                      <>
+                        {' · '}Total value{' '}
+                        <span className="font-medium text-[#c9d1d9]">
+                          {formatINR(completedAllocs.reduce((s, a) => s + (a.projects?.sales_value ?? 0), 0))}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors',
+        active
+          ? 'border-[#58a6ff] text-[#e6edf3]'
+          : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'
+      )}
+    >
+      {icon}
+      {children}
+    </button>
   )
 }
