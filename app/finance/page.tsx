@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import { formatINR } from '@/lib/utils/currency'
 import { plannedAllocationCost, workingDaysInMonth } from '@/lib/utils/cost'
 import { getMonthTimeEntries } from '@/lib/queries/time'
-import { AllocationsStrip } from '@/components/finance/AllocationsStrip'
 import { formatDate } from '@/lib/utils/date'
 import { cn } from '@/lib/utils'
 import {
@@ -685,15 +684,6 @@ export default function FinancePage() {
           </div>
         </div>
       )}
-
-      {/* ── Allocations Strip — full-width, top-level (no nested cards) ── */}
-      <AllocationsStrip
-        year={year}
-        month={month}
-        personRows={m_.personRows}
-        allocations={allocations!}
-        hoursByDay={hoursByDay}
-      />
 
       {/* ── Projects Table — Revenue vs Forecast vs Actual ── */}
       <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
