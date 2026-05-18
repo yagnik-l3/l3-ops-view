@@ -40,7 +40,13 @@ export async function PATCH(
   }
 
   const body = (await request.json().catch(() => null)) as
-    | { full_name?: string | null; role?: string; person_id?: string | null; banned?: boolean }
+    | {
+        full_name?: string | null
+        role?: string
+        person_id?: string | null
+        banned?: boolean
+        password?: string
+      }
     | null
   if (!body) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
@@ -61,6 +67,21 @@ export async function PATCH(
   if (typeof body.banned === 'boolean') {
     const { error } = await admin.auth.admin.updateUserById(id, {
       ban_duration: body.banned ? BAN_DURATION : 'none',
+    })
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+  }
+
+  // ── Password reset ───────────────────────────────────────────────────────
+  // Supabase enforces a minimum of 6 chars at the auth layer; we mirror the
+  // invite flow's 8-char floor for consistency.
+  if (body.password !== undefined) {
+    if (typeof body.password !== 'string' || body.password.length < 8) {
+      return NextResponse.json({ error: 'password_too_short' }, { status: 400 })
+    }
+    const { error } = await admin.auth.admin.updateUserById(id, {
+      password: body.password,
     })
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 })
