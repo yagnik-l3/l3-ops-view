@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import type { ReadonlyURLSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { getPersonTimeSummary, getAllProjectsLite } from '@/lib/queries/time'
@@ -42,9 +44,26 @@ function isoDate(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
+function buildQuery(params: ReadonlyURLSearchParams, updates: Record<string, string | null>): string {
+  const next = new URLSearchParams(params.toString())
+  for (const [k, v] of Object.entries(updates)) {
+    if (v == null || v === '') next.delete(k)
+    else next.set(k, v)
+  }
+  return next.toString()
+}
+
 export function FeedClient() {
   const supabase = createClient()
-  const [tab, setTab] = useState<Tab>('activity')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const tab: Tab = searchParams.get('tab') === 'report' ? 'report' : 'activity'
+  const setTab = (next: Tab) => {
+    const qs = buildQuery(searchParams, { tab: next === 'activity' ? null : next })
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
 
   const { data: people, isLoading: loadingPeople } = useQuery({
     queryKey: ['feed_team_people'],
@@ -126,16 +145,51 @@ interface ActivityViewProps {
 
 function ActivityView({ people, projectMap, loadingPeople }: ActivityViewProps) {
   const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1) // 1-indexed
-  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null)
-  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const yParam = Number(searchParams.get('y'))
+  const mParam = Number(searchParams.get('m'))
+  const year = Number.isFinite(yParam) && yParam > 0 ? yParam : now.getFullYear()
+  const month = Number.isFinite(mParam) && mParam >= 1 && mParam <= 12 ? mParam : now.getMonth() + 1
+  const selectedPersonId = searchParams.get('person')
+  const selectedDay = searchParams.get('d')
+
+  const updateUrl = (updates: Record<string, string | null>) => {
+    const qs = buildQuery(searchParams, updates)
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
+
+  const isCurMonth = (y: number, m: number) =>
+    y === now.getFullYear() && m === now.getMonth() + 1
+
+  const setSelectedPersonId = (id: string | null) =>
+    updateUrl({ person: id, d: null })
+  const setSelectedDay = (iso: string | null) => updateUrl({ d: iso })
+  const setMonthYear = (y: number, m: number) => {
+    const current = isCurMonth(y, m)
+    updateUrl({
+      y: current ? null : String(y),
+      m: current ? null : String(m),
+      d: null,
+    })
+  }
 
   const effectivePersonId = selectedPersonId ?? people[0]?.id ?? null
   const selectedPerson = useMemo(
     () => people.find(p => p.id === effectivePersonId) ?? null,
     [people, effectivePersonId],
   )
+
+  const dayDetailRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!selectedDay) return
+    const t = setTimeout(() => {
+      dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 60)
+    return () => clearTimeout(t)
+  }, [selectedDay])
 
   const monthDate = new Date(year, month - 1, 1)
   const monthStart = isoDate(startOfMonth(monthDate))
@@ -200,18 +254,14 @@ function ActivityView({ people, projectMap, loadingPeople }: ActivityViewProps) 
 
   function shiftMonth(delta: number) {
     const next = addMonths(monthDate, delta)
-    setYear(next.getFullYear())
-    setMonth(next.getMonth() + 1)
-    setSelectedDay(null)
+    setMonthYear(next.getFullYear(), next.getMonth() + 1)
   }
   function goToday() {
     const t = new Date()
-    setYear(t.getFullYear())
-    setMonth(t.getMonth() + 1)
-    setSelectedDay(null)
+    setMonthYear(t.getFullYear(), t.getMonth() + 1)
   }
 
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
+  const isCurrentMonth = isCurMonth(year, month)
 
   // Build calendar grid: 6 weeks × 7 days, starting Monday before/at the 1st of month
   const calendarStart = useMemo(() => {
@@ -237,7 +287,7 @@ function ActivityView({ people, projectMap, loadingPeople }: ActivityViewProps) 
           <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Employee</label>
           <select
             value={effectivePersonId ?? ''}
-            onChange={e => { setSelectedPersonId(e.target.value); setSelectedDay(null) }}
+            onChange={e => setSelectedPersonId(e.target.value || null)}
             disabled={loadingPeople || people.length === 0}
             className="text-sm border border-[#30363d] rounded-md px-2.5 py-1.5 bg-[#0d1117] text-[#e6edf3] min-w-[200px] focus:outline-none focus:border-[#58a6ff]"
           >
@@ -305,18 +355,20 @@ function ActivityView({ people, projectMap, loadingPeople }: ActivityViewProps) 
           monthIdx={month}
           dailyMap={dailyMap}
           selectedDay={selectedDay}
-          onSelectDay={iso => setSelectedDay(prev => prev === iso ? null : iso)}
+          onSelectDay={iso => setSelectedDay(selectedDay === iso ? null : iso)}
           loading={loadingEntries}
         />
       )}
 
       {/* Day expanded */}
       {expanded && selectedDay && selectedPerson && (
-        <DayDetail
-          date={selectedDay}
-          dayCell={expanded}
-          personId={selectedPerson.id}
-        />
+        <div ref={dayDetailRef} className="scroll-mt-6">
+          <DayDetail
+            date={selectedDay}
+            dayCell={expanded}
+            personId={selectedPerson.id}
+          />
+        </div>
       )}
     </div>
   )
