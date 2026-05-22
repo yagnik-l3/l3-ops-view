@@ -15,13 +15,14 @@ import {
 } from '@/lib/utils/timeline'
 import type { Person, Allocation, Project } from '@/lib/supabase/types'
 import { format } from 'date-fns'
-import { ArrowLeft, Briefcase, CalendarRange, Activity, Clock, Pencil } from 'lucide-react'
+import { ArrowLeft, Briefcase, CalendarRange, Activity, Clock, Pencil, FileText } from 'lucide-react'
 import { PersonActivityCalendar } from '@/components/people/PersonActivityCalendar'
+import { PersonMonthlyReport } from '@/components/people/PersonMonthlyReport'
 import { DailyLogEditor } from '@/components/time/DailyLogEditor'
 import { getMyProfile } from '@/lib/queries/profile'
 
 type AllocWithProject = Allocation & { projects: Project }
-type Tab = 'activity' | 'allocations'
+type Tab = 'activity' | 'report' | 'allocations'
 
 export default function PersonPage() {
   const { id } = useParams<{ id: string }>()
@@ -215,6 +216,9 @@ export default function PersonPage() {
           <TabButton active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Activity className="h-3.5 w-3.5" />}>
             Activity
           </TabButton>
+          <TabButton active={tab === 'report'} onClick={() => setTab('report')} icon={<FileText className="h-3.5 w-3.5" />}>
+            Monthly report
+          </TabButton>
           <TabButton active={tab === 'allocations'} onClick={() => setTab('allocations')} icon={<CalendarRange className="h-3.5 w-3.5" />}>
             Allocations
             <span className="ml-1.5 text-[10px] text-[#6e7681] font-normal">
@@ -247,6 +251,12 @@ export default function PersonPage() {
               </section>
             )}
           </div>
+        ) : tab === 'report' ? (
+          <PersonMonthlyReport
+            personId={id}
+            person={person}
+            isFounder={isFounder}
+          />
         ) : (
           <div className="space-y-8">
             {/* Active projects */}

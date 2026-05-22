@@ -152,6 +152,19 @@ export async function getPersonTimeSummary(personId: string, fromDate: string, t
   return (data ?? []) as Array<TimeEntry & { projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'> | null }>
 }
 
+/** Every time entry logged on a single date, across all people — joined with
+ *  person + project. Powers the team-wide day snapshot on /feed. */
+export async function getDayTimeEntries(date: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('*, people(id, name, avatar_initials, avatar_color), projects(id, name, client_name, status, color)')
+    .eq('date', date)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as TimeEntryWithRels[]
+}
+
 /** All time_entries for a project during a month range — used by finance for actuals. */
 export async function getMonthTimeEntries(fromDate: string, toDate: string) {
   const supabase = createClient()

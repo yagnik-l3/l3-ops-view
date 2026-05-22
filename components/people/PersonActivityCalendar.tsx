@@ -32,7 +32,7 @@ type EntryFull = TimeEntry & { projects: Pick<Project, 'id' | 'name' | 'client_n
 
 type DayCellData = {
   hours: number
-  projects: Map<string, { id: string; name: string; color: string | null; hours: number; logs: { hours: number; work_log: string | null }[] }>
+  projects: Map<string, { id: string; name: string; color: string | null; hours: number }>
 }
 
 const isoDate = (d: Date) => format(d, 'yyyy-MM-dd')
@@ -80,10 +80,8 @@ export function PersonActivityCalendar({ personId, initialDate, onSelectDay }: P
         name: e.projects?.name ?? proj?.name ?? 'Unknown',
         color: e.projects?.color ?? proj?.color ?? null,
         hours: 0,
-        logs: [] as { hours: number; work_log: string | null }[],
       }
       cur.hours += Number(e.hours)
-      cur.logs.push({ hours: Number(e.hours), work_log: e.work_log })
       bucket.projects.set(e.project_id, cur)
       map.set(e.date, bucket)
     }
@@ -361,27 +359,12 @@ function DayDetail({ date, dayCell }: { date: string; dayCell: DayCellData }) {
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {projects.map(p => (
-          <div key={p.id} className="rounded-lg border border-[#30363d] bg-[#0d1117]/40 p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color ?? '#58a6ff' }} />
-              <span className="text-sm font-medium text-[#c9d1d9] truncate">{p.name}</span>
-              <span className="ml-auto text-sm tabular-nums text-[#e6edf3] font-medium">{p.hours.toFixed(1)}h</span>
-            </div>
-            {p.logs.filter(l => l.work_log && l.work_log.trim() !== '').length > 0 ? (
-              <ul className="space-y-1.5 mt-2">
-                {p.logs
-                  .filter(l => l.work_log && l.work_log.trim() !== '')
-                  .map((l, i) => (
-                    <li key={i} className="text-xs text-[#8b949e] whitespace-pre-wrap leading-relaxed pl-4 border-l border-[#30363d]">
-                      {l.work_log}
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="text-[11px] text-[#484f58] italic mt-1 pl-4">No work log entered</p>
-            )}
+          <div key={p.id} className="rounded-lg border border-[#30363d] bg-[#0d1117]/40 p-3 flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color ?? '#58a6ff' }} />
+            <span className="text-sm font-medium text-[#c9d1d9] truncate">{p.name}</span>
+            <span className="ml-auto text-sm tabular-nums text-[#e6edf3] font-medium">{p.hours.toFixed(1)}h</span>
           </div>
         ))}
       </div>

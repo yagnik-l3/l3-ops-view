@@ -1,76 +1,50 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import type { ReadonlyURLSearchParams } from 'next/navigation'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { getPersonTimeSummary, getAllProjectsLite } from '@/lib/queries/time'
-import {
-  format,
-  startOfMonth,
-  endOfMonth,
-  addMonths,
-  addDays,
-  isSameMonth,
-} from 'date-fns'
-import {
-  Activity,
-  FileText,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  Coffee,
-} from 'lucide-react'
+import { getDayTimeEntries } from '@/lib/queries/time'
+import { format, addDays } from 'date-fns'
+import { ChevronLeft, ChevronRight, Pencil, CheckCircle2, Coffee } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { workingDaysInMonth, isWorkingDay } from '@/lib/utils/cost'
-import { ReportClient } from './ReportClient'
-import type { Person, TimeEntry, Project } from '@/lib/supabase/types'
-
-type Tab = 'activity' | 'report'
+import { isWorkingDay } from '@/lib/utils/cost'
+import type { Person } from '@/lib/supabase/types'
 
 const HOURS_PER_DAY = 8
 
-type PersonLite = Pick<Person, 'id' | 'name' | 'role' | 'type' | 'avatar_initials' | 'avatar_color' | 'is_active' | 'monthly_salary'>
-type ProjectLite = { id: string; name: string; color: string | null }
-type EntryFull = TimeEntry & { projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'> | null }
+type PersonLite = Pick<Person, 'id' | 'name' | 'role' | 'type' | 'avatar_initials' | 'avatar_color' | 'is_active'>
 
-function monthLabel(year: number, month: number): string {
-  return new Date(year, month - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+type ProjectDay = {
+  id: string
+  name: string
+  color: string | null
+  hours: number
+  logs: { hours: number; work_log: string | null }[]
+}
+
+type DayData = {
+  hours: number
+  projects: Map<string, ProjectDay>
 }
 
 function isoDate(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
-function buildQuery(params: ReadonlyURLSearchParams, updates: Record<string, string | null>): string {
-  const next = new URLSearchParams(params.toString())
-  for (const [k, v] of Object.entries(updates)) {
-    if (v == null || v === '') next.delete(k)
-    else next.set(k, v)
-  }
-  return next.toString()
-}
-
+/** Team-wide day snapshot — every active employee and what they logged on a
+ *  single day, so the founder can see who worked on what without drilling in. */
 export function FeedClient() {
   const supabase = createClient()
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-
-  const tab: Tab = searchParams.get('tab') === 'report' ? 'report' : 'activity'
-  const setTab = (next: Tab) => {
-    const qs = buildQuery(searchParams, { tab: next === 'activity' ? null : next })
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
-  }
+  const todayIso = isoDate(new Date())
+  const [date, setDate] = useState(todayIso)
 
   const { data: people, isLoading: loadingPeople } = useQuery({
     queryKey: ['feed_team_people'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('people')
-        .select('id, name, role, type, avatar_initials, avatar_color, is_active, monthly_salary')
+        .select('id, name, role, type, avatar_initials, avatar_color, is_active')
         .eq('is_active', true)
         .neq('type', 'founder')
         .order('name')
@@ -79,322 +53,172 @@ export function FeedClient() {
     },
   })
 
-  const { data: projects } = useQuery({
-    queryKey: ['feed_projects_lite'],
-    queryFn: getAllProjectsLite,
-    staleTime: 5 * 60_000,
+  const { data: entries, isLoading: loadingEntries } = useQuery({
+    queryKey: ['feed_day_entries', date],
+    queryFn: () => getDayTimeEntries(date),
   })
 
-  const projectMap = useMemo(() => {
-    const m = new Map<string, ProjectLite>()
-    for (const p of projects ?? []) m.set(p.id, p)
-    return m
-  }, [projects])
+  // Aggregate entries → per-person, per-project for the selected day.
+  const byPerson = useMemo(() => {
+    const map = new Map<string, DayData>()
+    for (const e of entries ?? []) {
+      const bucket = map.get(e.person_id) ?? { hours: 0, projects: new Map<string, ProjectDay>() }
+      const hours = Number(e.hours)
+      bucket.hours += hours
+      const cur = bucket.projects.get(e.project_id) ?? {
+        id: e.project_id,
+        name: e.projects?.name ?? 'Unknown',
+        color: e.projects?.color ?? null,
+        hours: 0,
+        logs: [],
+      }
+      cur.hours += hours
+      cur.logs.push({ hours, work_log: e.work_log })
+      bucket.projects.set(e.project_id, cur)
+      map.set(e.person_id, bucket)
+    }
+    return map
+  }, [entries])
+
+  // One row per active employee — logged first (by hours), then the rest.
+  const rows = useMemo(() => {
+    return (people ?? [])
+      .map(p => ({ person: p, day: byPerson.get(p.id) ?? null }))
+      .sort((a, b) =>
+        (b.day?.hours ?? 0) - (a.day?.hours ?? 0) ||
+        a.person.name.localeCompare(b.person.name),
+      )
+  }, [people, byPerson])
+
+  const loggedCount = rows.filter(r => (r.day?.hours ?? 0) > 0).length
+  const totalHours = rows.reduce((s, r) => s + (r.day?.hours ?? 0), 0)
+
+  const dateObj = new Date(date + 'T00:00:00')
+  const isToday = date === todayIso
+  const holiday = !isWorkingDay(dateObj)
+
+  function shiftDay(delta: number) {
+    setDate(isoDate(addDays(dateObj, delta)))
+  }
+
+  const showSkeleton = loadingPeople || (loadingEntries && !entries)
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <header className="mb-2">
-        <h1 className="text-xl font-semibold text-[#e6edf3]">Team</h1>
+    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+      <header className="mb-5">
+        <h1 className="text-xl font-semibold text-[#e6edf3]">Activity</h1>
         <p className="text-sm text-[#8b949e] mt-1">
-          {tab === 'activity'
-            ? 'Pick a teammate and see their month at a glance — hours, projects, daily breakdown.'
-            : "One employee at a time — hours, cost split, and what they actually shipped. Built for 1:1s."}
+          Who logged what across the team — one day at a glance.
         </p>
       </header>
 
-      <div className="flex items-center gap-1 mb-6 mt-4 border-b border-[#30363d]">
-        <TabButton active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Activity className="h-3.5 w-3.5" />}>
-          Activity
-        </TabButton>
-        <TabButton active={tab === 'report'} onClick={() => setTab('report')} icon={<FileText className="h-3.5 w-3.5" />}>
-          Monthly report
-        </TabButton>
-      </div>
-
-      {tab === 'report'
-        ? <ReportClient people={people ?? []} projectMap={projectMap} loadingPeople={loadingPeople} />
-        : <ActivityView people={people ?? []} projectMap={projectMap} loadingPeople={loadingPeople} />}
-    </div>
-  )
-}
-
-function TabButton({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors',
-        active
-          ? 'border-[#58a6ff] text-[#e6edf3]'
-          : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'
-      )}
-    >
-      {icon}
-      {children}
-    </button>
-  )
-}
-
-// ── Activity view ──────────────────────────────────────────────────────────
-
-interface ActivityViewProps {
-  people: PersonLite[]
-  projectMap: Map<string, ProjectLite>
-  loadingPeople: boolean
-}
-
-function ActivityView({ people, projectMap, loadingPeople }: ActivityViewProps) {
-  const now = new Date()
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-
-  const yParam = Number(searchParams.get('y'))
-  const mParam = Number(searchParams.get('m'))
-  const year = Number.isFinite(yParam) && yParam > 0 ? yParam : now.getFullYear()
-  const month = Number.isFinite(mParam) && mParam >= 1 && mParam <= 12 ? mParam : now.getMonth() + 1
-  const selectedPersonId = searchParams.get('person')
-  const selectedDay = searchParams.get('d')
-
-  const updateUrl = (updates: Record<string, string | null>) => {
-    const qs = buildQuery(searchParams, updates)
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
-  }
-
-  const isCurMonth = (y: number, m: number) =>
-    y === now.getFullYear() && m === now.getMonth() + 1
-
-  const setSelectedPersonId = (id: string | null) =>
-    updateUrl({ person: id, d: null })
-  const setSelectedDay = (iso: string | null) => updateUrl({ d: iso })
-  const setMonthYear = (y: number, m: number) => {
-    const current = isCurMonth(y, m)
-    updateUrl({
-      y: current ? null : String(y),
-      m: current ? null : String(m),
-      d: null,
-    })
-  }
-
-  const effectivePersonId = selectedPersonId ?? people[0]?.id ?? null
-  const selectedPerson = useMemo(
-    () => people.find(p => p.id === effectivePersonId) ?? null,
-    [people, effectivePersonId],
-  )
-
-  const dayDetailRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!selectedDay) return
-    const t = setTimeout(() => {
-      dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 60)
-    return () => clearTimeout(t)
-  }, [selectedDay])
-
-  const monthDate = new Date(year, month - 1, 1)
-  const monthStart = isoDate(startOfMonth(monthDate))
-  const monthEnd = isoDate(endOfMonth(monthDate))
-
-  const { data: entries, isLoading: loadingEntries } = useQuery({
-    queryKey: ['activity_entries', effectivePersonId, monthStart, monthEnd],
-    queryFn: () => effectivePersonId
-      ? getPersonTimeSummary(effectivePersonId, monthStart, monthEnd)
-      : Promise.resolve([] as EntryFull[]),
-    enabled: !!effectivePersonId,
-  })
-
-  // Aggregate hours per (date, project)
-  const dailyMap = useMemo(() => {
-    type DayCell = {
-      hours: number
-      projects: Map<string, { id: string; name: string; color: string | null; hours: number; logs: { hours: number; work_log: string | null }[] }>
-    }
-    const map = new Map<string, DayCell>()
-    for (const e of (entries ?? []) as EntryFull[]) {
-      const bucket = map.get(e.date) ?? { hours: 0, projects: new Map() }
-      bucket.hours += Number(e.hours)
-      const projId = e.project_id
-      const proj = projectMap.get(projId)
-      const cur = bucket.projects.get(projId) ?? {
-        id: projId,
-        name: e.projects?.name ?? proj?.name ?? 'Unknown',
-        color: e.projects?.color ?? proj?.color ?? null,
-        hours: 0,
-        logs: [] as { hours: number; work_log: string | null }[],
-      }
-      cur.hours += Number(e.hours)
-      cur.logs.push({ hours: Number(e.hours), work_log: e.work_log })
-      bucket.projects.set(projId, cur)
-      map.set(e.date, bucket)
-    }
-    return map
-  }, [entries, projectMap])
-
-  const monthSummary = useMemo(() => {
-    const totalHours = Array.from(dailyMap.values()).reduce((s, d) => s + d.hours, 0)
-    const workingDays = workingDaysInMonth(year, month)
-    const payable = workingDays * HOURS_PER_DAY
-    const utilPct = payable > 0 ? Math.round((totalHours / payable) * 100) : 0
-    const daysLogged = dailyMap.size
-
-    const projectTotals = new Map<string, { id: string; name: string; color: string | null; hours: number }>()
-    for (const day of dailyMap.values()) {
-      for (const [pid, p] of day.projects) {
-        const cur = projectTotals.get(pid) ?? { id: pid, name: p.name, color: p.color, hours: 0 }
-        cur.hours += p.hours
-        projectTotals.set(pid, cur)
-      }
-    }
-    const topProjects = Array.from(projectTotals.values())
-      .sort((a, b) => b.hours - a.hours)
-      .slice(0, 3)
-
-    return { totalHours, workingDays, payable, utilPct, daysLogged, topProjects }
-  }, [dailyMap, year, month])
-
-  function shiftMonth(delta: number) {
-    const next = addMonths(monthDate, delta)
-    setMonthYear(next.getFullYear(), next.getMonth() + 1)
-  }
-  function goToday() {
-    const t = new Date()
-    setMonthYear(t.getFullYear(), t.getMonth() + 1)
-  }
-
-  const isCurrentMonth = isCurMonth(year, month)
-
-  // Build calendar grid: 6 weeks × 7 days, starting Monday before/at the 1st of month
-  const calendarStart = useMemo(() => {
-    const first = new Date(year, month - 1, 1)
-    const dow = first.getDay() // 0 = Sun, 1 = Mon, ... 6 = Sat
-    const offsetFromMonday = (dow + 6) % 7 // Mon→0, Tue→1, ..., Sun→6
-    return addDays(first, -offsetFromMonday)
-  }, [year, month])
-
-  const cells = useMemo(() => {
-    const arr: Date[] = []
-    for (let i = 0; i < 42; i++) arr.push(addDays(calendarStart, i))
-    return arr
-  }, [calendarStart])
-
-  const expanded = selectedDay ? dailyMap.get(selectedDay) ?? null : null
-
-  return (
-    <div className="space-y-5">
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <div className="flex items-center gap-2">
-          <label className="text-[11px] text-[#6e7681] uppercase tracking-wide">Employee</label>
-          <select
-            value={effectivePersonId ?? ''}
-            onChange={e => setSelectedPersonId(e.target.value || null)}
-            disabled={loadingPeople || people.length === 0}
-            className="text-sm border border-[#30363d] rounded-md px-2.5 py-1.5 bg-[#0d1117] text-[#e6edf3] min-w-[200px] focus:outline-none focus:border-[#58a6ff]"
-          >
-            {people.length === 0 && <option value="">No team members</option>}
-            {people.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => shiftMonth(-1)}
-            className="p-1.5 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
-            aria-label="Previous month"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <span className="px-3 text-sm font-medium text-[#c9d1d9] min-w-[148px] text-center select-none">
-            {monthLabel(year, month)}
-          </span>
-          <button
-            onClick={() => shiftMonth(1)}
-            disabled={isCurrentMonth}
-            className="p-1.5 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            aria-label="Next month"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {!isCurrentMonth && (
-            <button
-              onClick={goToday}
-              className="ml-2 text-xs px-2.5 py-1 rounded text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#21262d] transition-colors"
-            >
+      {/* Date nav + summary */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex items-baseline gap-2.5 flex-wrap">
+          <h2 className="text-base font-medium text-[#c9d1d9]">
+            {dateObj.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </h2>
+          {isToday && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#58a6ff]/10 text-[#58a6ff] border border-[#58a6ff]/20">
               Today
-            </button>
+            </span>
+          )}
+          {holiday && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-[#6e7681]">
+              <Coffee className="h-3 w-3" /> Weekend / holiday
+            </span>
           )}
         </div>
+
+        <div className="flex items-center gap-3">
+          {!showSkeleton && rows.length > 0 && (
+            <p className="text-xs text-[#8b949e] tabular-nums">
+              <span className="text-[#e6edf3] font-medium">{loggedCount}</span> of {rows.length} logged
+              {' · '}
+              <span className="text-[#e6edf3] font-medium">{totalHours.toFixed(1)}h</span> total
+            </p>
+          )}
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => shiftDay(-1)}
+              className="p-1.5 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              aria-label="Previous day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => shiftDay(1)}
+              disabled={isToday}
+              className="p-1.5 rounded text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            {!isToday && (
+              <button
+                onClick={() => setDate(todayIso)}
+                className="ml-2 text-xs px-2.5 py-1 rounded text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#21262d] transition-colors"
+              >
+                Today
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Summary strip */}
-      {selectedPerson && (
-        <SummaryStrip
-          person={selectedPerson}
-          totalHours={monthSummary.totalHours}
-          workingDays={monthSummary.workingDays}
-          payable={monthSummary.payable}
-          utilPct={monthSummary.utilPct}
-          daysLogged={monthSummary.daysLogged}
-          topProjects={monthSummary.topProjects}
-        />
-      )}
-
-      {/* Calendar */}
-      {loadingPeople ? (
-        <div className="h-[420px] rounded-xl bg-[#161b22] border border-[#30363d] animate-pulse" />
-      ) : !selectedPerson ? (
+      {/* Cards */}
+      {showSkeleton ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-24 rounded-xl bg-[#161b22] border border-[#30363d] animate-pulse" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[#30363d] bg-[#0d1117] p-10 text-center">
           <p className="text-sm text-[#8b949e]">No active team members.</p>
         </div>
       ) : (
-        <MonthCalendar
-          cells={cells}
-          monthYear={year}
-          monthIdx={month}
-          dailyMap={dailyMap}
-          selectedDay={selectedDay}
-          onSelectDay={iso => setSelectedDay(selectedDay === iso ? null : iso)}
-          loading={loadingEntries}
-        />
-      )}
-
-      {/* Day expanded */}
-      {expanded && selectedDay && selectedPerson && (
-        <div ref={dayDetailRef} className="scroll-mt-6">
-          <DayDetail
-            date={selectedDay}
-            dayCell={expanded}
-            personId={selectedPerson.id}
-          />
+        <div className={cn('space-y-3', loadingEntries && 'opacity-60')}>
+          {rows.map(({ person, day }) => (
+            <PersonDayCard key={person.id} person={person} day={day} date={date} />
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ── Summary strip ──────────────────────────────────────────────────────────
-
-interface SummaryStripProps {
-  person: PersonLite
-  totalHours: number
-  workingDays: number
-  payable: number
-  utilPct: number
-  daysLogged: number
-  topProjects: { id: string; name: string; color: string | null; hours: number }[]
-}
-
-function SummaryStrip({ person, totalHours, workingDays, payable, utilPct, daysLogged, topProjects }: SummaryStripProps) {
-  const utilColor = utilPct >= 80 ? '#1D9E75' : utilPct >= 50 ? '#58a6ff' : utilPct >= 20 ? '#EF9F27' : '#E24B4A'
+function PersonDayCard({ person, day, date }: { person: PersonLite; day: DayData | null; date: string }) {
   const initials = person.avatar_initials ?? person.name.slice(0, 2).toUpperCase()
   const avatarColor = person.avatar_color ?? '#1D9E75'
+  const hours = day?.hours ?? 0
+  const logged = hours > 0
+
+  const projects = useMemo(
+    () => (day ? Array.from(day.projects.values()).sort((a, b) => b.hours - a.hours) : []),
+    [day],
+  )
+
+  // Stacked bar — width proportional to hours per project, capped at a full day.
+  const segments = useMemo(() => {
+    if (projects.length === 0) return [] as { color: string; widthPct: number }[]
+    const denom = Math.max(hours, HOURS_PER_DAY)
+    return projects.map(p => ({
+      color: p.color ?? '#58a6ff',
+      widthPct: (p.hours / denom) * 100,
+    }))
+  }, [projects, hours])
 
   return (
-    <div className="rounded-xl border border-[#30363d] bg-[#161b22] p-4">
-      <div className="flex flex-wrap items-center gap-5">
-        <Link href={`/people/${person.id}`} className="flex items-center gap-3 group min-w-0">
+    <div
+      className={cn(
+        'rounded-xl border bg-[#161b22] overflow-hidden',
+        logged ? 'border-[#30363d]' : 'border-[#30363d]/50',
+      )}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4">
+        <Link href={`/people/${person.id}`} className="flex items-center gap-3 group min-w-0 flex-1">
           <div
             className="h-9 w-9 rounded-full flex items-center justify-center text-white text-xs font-medium shrink-0"
             style={{ backgroundColor: avatarColor }}
@@ -402,255 +226,85 @@ function SummaryStrip({ person, totalHours, workingDays, payable, utilPct, daysL
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-[#e6edf3] truncate group-hover:text-[#58a6ff] transition-colors">{person.name}</p>
+            <p className="text-sm font-medium text-[#e6edf3] truncate group-hover:text-[#58a6ff] transition-colors">
+              {person.name}
+            </p>
             <p className="text-[11px] text-[#6e7681] truncate capitalize">{person.role}</p>
           </div>
         </Link>
 
-        <div className="flex items-center gap-5 flex-wrap">
-          <Stat label="Hours" value={`${totalHours.toFixed(1)}h`} sub={`of ${payable}h capacity`} />
-          <Stat label="Days logged" value={`${daysLogged}`} sub={`of ${workingDays} working`} />
-          <Stat label="Utilization" value={`${utilPct}%`} valueColor={utilColor} />
-        </div>
-
-        {topProjects.length > 0 && (
-          <div className="flex items-center gap-2 ml-auto flex-wrap">
-            <span className="text-[11px] text-[#6e7681] uppercase tracking-wide">Top</span>
-            {topProjects.map(p => (
-              <span
-                key={p.id}
-                className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-[#30363d] bg-[#0d1117]"
-              >
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color ?? '#58a6ff' }} />
-                <span className="text-[#c9d1d9] truncate max-w-[120px]">{p.name}</span>
-                <span className="text-[#6e7681] tabular-nums">{p.hours.toFixed(1)}h</span>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Stat({ label, value, sub, valueColor }: { label: string; value: string; sub?: string; valueColor?: string }) {
-  return (
-    <div>
-      <p className="text-[10px] text-[#6e7681] uppercase tracking-wide">{label}</p>
-      <p className="text-base font-semibold tabular-nums" style={{ color: valueColor ?? '#e6edf3' }}>{value}</p>
-      {sub && <p className="text-[10px] text-[#6e7681] mt-0.5">{sub}</p>}
-    </div>
-  )
-}
-
-// ── Calendar grid ──────────────────────────────────────────────────────────
-
-interface DayCellData {
-  hours: number
-  projects: Map<string, { id: string; name: string; color: string | null; hours: number; logs: { hours: number; work_log: string | null }[] }>
-}
-
-interface MonthCalendarProps {
-  cells: Date[]
-  monthYear: number
-  monthIdx: number
-  dailyMap: Map<string, DayCellData>
-  selectedDay: string | null
-  onSelectDay: (iso: string) => void
-  loading: boolean
-}
-
-const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-function MonthCalendar({ cells, monthYear, monthIdx, dailyMap, selectedDay, onSelectDay, loading }: MonthCalendarProps) {
-  const today = isoDate(new Date())
-  const monthRef = new Date(monthYear, monthIdx - 1, 1)
-
-  return (
-    <div className="rounded-xl border border-[#30363d] bg-[#161b22] overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-[#30363d] bg-[#0d1117]">
-        {WEEKDAY_LABELS.map((d, i) => (
-          <div
-            key={d}
-            className={cn(
-              'px-3 py-2 text-[10px] uppercase tracking-wider text-center',
-              i === 5 ? 'text-[#EF9F27]/70' : i === 6 ? 'text-[#6e7681]' : 'text-[#8b949e]',
-            )}
+        <div className="flex items-center gap-3 shrink-0">
+          <span
+            className="text-lg font-semibold tabular-nums"
+            style={{ color: logged ? (hours >= HOURS_PER_DAY ? '#1D9E75' : '#e6edf3') : '#484f58' }}
           >
-            {d}
-          </div>
-        ))}
-      </div>
-
-      <div className={cn('grid grid-cols-7', loading && 'opacity-60 pointer-events-none')}>
-        {cells.map((d, i) => {
-          const iso = isoDate(d)
-          const inMonth = isSameMonth(d, monthRef)
-          const cell = dailyMap.get(iso)
-          const holiday = !isWorkingDay(d)
-          const isToday = iso === today
-          const isSelected = iso === selectedDay
-          return (
-            <CalendarCell
-              key={iso + '-' + i}
-              date={d}
-              iso={iso}
-              inMonth={inMonth}
-              holiday={holiday}
-              isToday={isToday}
-              isSelected={isSelected}
-              hours={cell?.hours ?? 0}
-              projects={cell ? Array.from(cell.projects.values()) : []}
-              onClick={() => onSelectDay(iso)}
-            />
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-interface CalendarCellProps {
-  date: Date
-  iso: string
-  inMonth: boolean
-  holiday: boolean
-  isToday: boolean
-  isSelected: boolean
-  hours: number
-  projects: { id: string; name: string; color: string | null; hours: number }[]
-  onClick: () => void
-}
-
-function CalendarCell({ date, inMonth, holiday, isToday, isSelected, hours, projects, onClick }: CalendarCellProps) {
-  const hasData = hours > 0
-  const dayNum = date.getDate()
-  // Stacked bar segments — width proportional to hours per project, capped at HOURS_PER_DAY
-  const segments = useMemo(() => {
-    if (projects.length === 0) return [] as { color: string; widthPct: number }[]
-    const denom = Math.max(hours, HOURS_PER_DAY)
-    return projects
-      .slice()
-      .sort((a, b) => b.hours - a.hours)
-      .map(p => ({
-        color: p.color ?? '#58a6ff',
-        widthPct: (p.hours / denom) * 100,
-      }))
-  }, [projects, hours])
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={!inMonth && !hasData}
-      className={cn(
-        'group relative h-[88px] border-r border-b border-[#30363d] p-1.5 text-left transition-colors',
-        'last:border-r-0',
-        !inMonth && 'bg-[#0d1117]/40 opacity-40',
-        inMonth && holiday && 'bg-[#0d1117]/30',
-        inMonth && !holiday && 'bg-[#161b22] hover:bg-[#21262d]/60',
-        isSelected && 'ring-1 ring-inset ring-[#58a6ff] bg-[#21262d]/80',
-      )}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <span
-          className={cn(
-            'text-[11px] tabular-nums font-medium',
-            isToday ? 'inline-flex items-center justify-center h-5 w-5 rounded-full bg-[#58a6ff] text-[#0d1117]'
-              : holiday ? 'text-[#6e7681]'
-              : inMonth ? 'text-[#c9d1d9]' : 'text-[#484f58]',
+            {hours.toFixed(1)}<span className="text-[11px] text-[#6e7681] ml-0.5">h</span>
+          </span>
+          {logged ? (
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[#1D9E75]/10 text-[#1D9E75] border border-[#1D9E75]/20">
+              <CheckCircle2 className="h-3 w-3" /> logged
+            </span>
+          ) : (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#8b949e] border border-[#30363d]">
+              not logged
+            </span>
           )}
-        >
-          {dayNum}
-        </span>
-        {holiday && inMonth && (
-          <Coffee className="h-3 w-3 text-[#6e7681]" />
-        )}
+        </div>
       </div>
 
-      {hasData && (
-        <div className="mt-1 space-y-1">
-          <div className="text-sm font-semibold tabular-nums" style={{ color: hours >= HOURS_PER_DAY ? '#1D9E75' : '#e6edf3' }}>
-            {hours.toFixed(1)}<span className="text-[10px] text-[#6e7681] ml-0.5">h</span>
-          </div>
+      {/* Body */}
+      {logged ? (
+        <div className="px-4 pb-4 space-y-3">
           <div className="h-1.5 w-full rounded-sm overflow-hidden flex bg-[#0d1117]">
             {segments.map((s, i) => (
-              <div
-                key={i}
-                style={{ width: `${s.widthPct}%`, backgroundColor: s.color }}
-              />
+              <div key={i} style={{ width: `${s.widthPct}%`, backgroundColor: s.color }} />
             ))}
           </div>
-          {projects.length > 1 && (
-            <p className="text-[10px] text-[#6e7681] tabular-nums">{projects.length} projects</p>
-          )}
+
+          {projects.map(p => {
+            const notes = p.logs.filter(l => l.work_log && l.work_log.trim() !== '')
+            return (
+              <div key={p.id} className="rounded-lg border border-[#30363d] bg-[#0d1117]/40 p-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color ?? '#58a6ff' }} />
+                  <span className="text-sm font-medium text-[#c9d1d9] truncate">{p.name}</span>
+                  <span className="ml-auto text-sm tabular-nums text-[#e6edf3] font-medium">{p.hours.toFixed(1)}h</span>
+                </div>
+                {notes.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {notes.map((l, i) => (
+                      <li key={i} className="text-xs text-[#8b949e] whitespace-pre-wrap leading-relaxed pl-4 border-l border-[#30363d]">
+                        {l.work_log}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-[#484f58] italic pl-4">No work log entered</p>
+                )}
+              </div>
+            )
+          })}
+
+          <Link
+            href={`/people/${person.id}?date=${date}#edit-log`}
+            className="inline-flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#58a6ff] transition-colors"
+          >
+            <Pencil className="h-3 w-3" /> Edit log
+          </Link>
+        </div>
+      ) : (
+        <div className="px-4 pb-4 -mt-1">
+          <p className="text-xs text-[#6e7681]">
+            No time logged{' · '}
+            <Link
+              href={`/people/${person.id}?date=${date}#edit-log`}
+              className="text-[#8b949e] hover:text-[#58a6ff] transition-colors"
+            >
+              add an entry
+            </Link>
+          </p>
         </div>
       )}
-
-      {!hasData && inMonth && !holiday && (
-        <p className="mt-1 text-[10px] text-[#484f58]">—</p>
-      )}
-    </button>
-  )
-}
-
-// ── Day detail ─────────────────────────────────────────────────────────────
-
-interface DayDetailProps {
-  date: string
-  dayCell: DayCellData
-  personId: string
-}
-
-function DayDetail({ date, dayCell, personId }: DayDetailProps) {
-  const projects = useMemo(
-    () => Array.from(dayCell.projects.values()).sort((a, b) => b.hours - a.hours),
-    [dayCell],
-  )
-  const dateObj = new Date(date + 'T00:00:00')
-  const weekday = dateObj.toLocaleDateString('en-IN', { weekday: 'long' })
-  const dateLabel = dateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-
-  return (
-    <div className="rounded-xl border border-[#30363d] bg-[#161b22] p-5">
-      <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
-        <div>
-          <p className="text-[11px] text-[#6e7681] uppercase tracking-wide">{weekday}</p>
-          <h3 className="text-base font-semibold text-[#e6edf3] mt-0.5">{dateLabel}</h3>
-          <p className="text-xs text-[#8b949e] mt-1">{dayCell.hours.toFixed(1)}h across {projects.length} project{projects.length !== 1 ? 's' : ''}</p>
-        </div>
-        <Link
-          href={`/people/${personId}?date=${date}#edit-log`}
-          className="flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#58a6ff] border border-[#30363d] hover:border-[#58a6ff]/50 rounded-md px-3 py-1.5 transition-colors"
-        >
-          <Pencil className="h-3 w-3" />
-          Edit log
-        </Link>
-      </div>
-
-      <div className="space-y-3">
-        {projects.map(p => (
-          <div key={p.id} className="rounded-lg border border-[#30363d] bg-[#0d1117]/40 p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color ?? '#58a6ff' }} />
-              <span className="text-sm font-medium text-[#c9d1d9] truncate">{p.name}</span>
-              <span className="ml-auto text-sm tabular-nums text-[#e6edf3] font-medium">{p.hours.toFixed(1)}h</span>
-            </div>
-            {p.logs.filter(l => l.work_log && l.work_log.trim() !== '').length > 0 ? (
-              <ul className="space-y-1.5 mt-2">
-                {p.logs
-                  .filter(l => l.work_log && l.work_log.trim() !== '')
-                  .map((l, i) => (
-                    <li key={i} className="text-xs text-[#8b949e] whitespace-pre-wrap leading-relaxed pl-4 border-l border-[#30363d]">
-                      {l.work_log}
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="text-[11px] text-[#484f58] italic mt-1 pl-4">No work log entered</p>
-            )}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
