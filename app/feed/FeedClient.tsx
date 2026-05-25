@@ -6,10 +6,13 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { getDayTimeEntries } from '@/lib/queries/time'
 import { format, addDays } from 'date-fns'
-import { ChevronLeft, ChevronRight, Pencil, CheckCircle2, Coffee } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, CheckCircle2, Coffee, Activity, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isWorkingDay } from '@/lib/utils/cost'
 import type { Person } from '@/lib/supabase/types'
+import { TeamReport } from './TeamReport'
+
+type Tab = 'activity' | 'report'
 
 const HOURS_PER_DAY = 8
 
@@ -35,6 +38,59 @@ function isoDate(d: Date): string {
 /** Team-wide day snapshot — every active employee and what they logged on a
  *  single day, so the founder can see who worked on what without drilling in. */
 export function FeedClient() {
+  const [tab, setTab] = useState<Tab>('activity')
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <header className="mb-5">
+        <h1 className="text-xl font-semibold text-[#e6edf3]">Team</h1>
+        <p className="text-sm text-[#8b949e] mt-1">
+          Day-by-day activity and rolled-up reports across the team.
+        </p>
+      </header>
+
+      <div className="flex items-center gap-1 border-b border-[#30363d] mb-5">
+        <TabButton active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Activity className="h-3.5 w-3.5" />}>
+          Activity
+        </TabButton>
+        <TabButton active={tab === 'report'} onClick={() => setTab('report')} icon={<FileText className="h-3.5 w-3.5" />}>
+          Report
+        </TabButton>
+      </div>
+
+      {tab === 'activity' ? <ActivityView /> : <TeamReport />}
+    </div>
+  )
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors',
+        active
+          ? 'border-[#58a6ff] text-[#e6edf3]'
+          : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]',
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
+
+function ActivityView() {
   const supabase = createClient()
   const todayIso = isoDate(new Date())
   const [date, setDate] = useState(todayIso)
@@ -104,14 +160,7 @@ export function FeedClient() {
   const showSkeleton = loadingPeople || (loadingEntries && !entries)
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
-      <header className="mb-5">
-        <h1 className="text-xl font-semibold text-[#e6edf3]">Activity</h1>
-        <p className="text-sm text-[#8b949e] mt-1">
-          Who logged what across the team — one day at a glance.
-        </p>
-      </header>
-
+    <div>
       {/* Date nav + summary */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-baseline gap-2.5 flex-wrap">

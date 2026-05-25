@@ -7,20 +7,23 @@ import { createClient } from '@/lib/supabase/client'
 import { ProjectListRow } from '@/components/projects/ProjectListRow'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Plus, X, Search } from 'lucide-react'
-import type { Project, ProjectStatus } from '@/lib/supabase/types'
+import type { Project, ProjectStatus, ProjectKind } from '@/lib/supabase/types'
 
 const PALETTE = [
   '#1d9e75', '#378add', '#8b5cf6', '#ef9f27', '#ec4899',
   '#06b6d4', '#f97316', '#d4537e', '#84cc16', '#a855f7', '#14b8a6', '#e24b4a',
 ]
 
-const STATUS_OPTIONS: { value: ProjectStatus | 'all'; label: string }[] = [
+type StatusFilterValue = ProjectStatus | 'all' | 'internal'
+
+const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'pipeline', label: 'Pipeline' },
   { value: 'active', label: 'Active' },
   { value: 'on_hold', label: 'On Hold' },
   { value: 'completed', label: 'Completed' },
   { value: 'lost', label: 'Lost' },
+  { value: 'internal', label: 'Internal' },
 ]
 
 export default function ProjectsPage() {
@@ -30,12 +33,21 @@ export default function ProjectsPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const statusFilter = (searchParams.get('status') ?? 'all') as ProjectStatus | 'all'
+  const statusFilter = (searchParams.get('status') ?? 'all') as StatusFilterValue
   const searchFilter = searchParams.get('search') ?? ''
 
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [newProject, setNewProject] = useState({
+  const [newProject, setNewProject] = useState<{
+    name: string
+    client_name: string
+    sales_value: string
+    start_date: string
+    target_end_date: string
+    estimated_weeks: string
+    kind: ProjectKind
+  }>({
     name: '', client_name: '', sales_value: '', start_date: '', target_end_date: '', estimated_weeks: '',
+    kind: 'client',
   })
 
   // Auto-calculate estimated_weeks from start + target end dates
@@ -74,7 +86,10 @@ export default function ProjectsPage() {
   const filtered = useMemo(() => {
     if (!projects) return []
     return projects.filter(p => {
-      const matchStatus = statusFilter === 'all' || p.status === statusFilter
+      const matchStatus =
+        statusFilter === 'all' ? true
+          : statusFilter === 'internal' ? p.kind === 'internal'
+            : p.status === statusFilter && p.kind !== 'internal'
       const q = searchFilter.toLowerCase()
       const matchSearch = !q || p.name.toLowerCase().includes(q) || p.client_name.toLowerCase().includes(q)
       return matchStatus && matchSearch
@@ -84,23 +99,31 @@ export default function ProjectsPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const nextColor = PALETTE[(projects ?? []).length % PALETTE.length]
-      const { data, error } = await supabase.from('projects').insert({
+      const isInternal = newProject.kind === 'internal'
+      const basePayload = {
         name: newProject.name,
-        client_name: newProject.client_name,
-        sales_value: parseFloat(newProject.sales_value) || 0,
-        start_date: newProject.start_date || null,
-        target_end_date: newProject.target_end_date || null,
-        estimated_weeks: parseInt(newProject.estimated_weeks) || null,
-        status: 'pipeline',
+        client_name: isInternal ? 'L3 Labs' : newProject.client_name,
+        sales_value: isInternal ? 0 : (parseFloat(newProject.sales_value) || 0),
+        start_date: isInternal ? null : (newProject.start_date || null),
+        target_end_date: isInternal ? null : (newProject.target_end_date || null),
+        estimated_weeks: isInternal ? null : (parseInt(newProject.estimated_weeks) || null),
+        status: (isInternal ? 'active' : 'pipeline') as ProjectStatus,
         color: nextColor,
-      }).select().single()
-      if (error) throw error
-      return data
+      }
+      // Try with `kind`; fall back without if the column hasn't been added yet.
+      const withKind = await supabase.from('projects').insert({ ...basePayload, kind: newProject.kind }).select().single()
+      if (!withKind.error) return withKind.data
+      if (isInternal) {
+        throw new Error('To create an Internal project, run the project_kind migration first (see Setup → docs).')
+      }
+      const fallback = await supabase.from('projects').insert(basePayload).select().single()
+      if (fallback.error) throw fallback.error
+      return fallback.data
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowAddDialog(false)
-      setNewProject({ name: '', client_name: '', sales_value: '', start_date: '', target_end_date: '', estimated_weeks: '' })
+      setNewProject({ name: '', client_name: '', sales_value: '', start_date: '', target_end_date: '', estimated_weeks: '', kind: 'client' })
       if (data?.id) router.push(`/projects/${data.id}`)
     },
   })
@@ -208,73 +231,105 @@ export default function ProjectsPage() {
               </button>
             </div>
             <div className="px-5 py-5 space-y-4">
+              {/* Kind toggle */}
+              <div>
+                <label className="text-xs text-[#8b949e] block mb-1.5">Project kind</label>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-[#0d1117] border border-[#30363d]">
+                  {(['client', 'internal'] as ProjectKind[]).map(k => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setNewProject(p => ({ ...p, kind: k }))}
+                      className={`text-xs py-1.5 rounded-md transition-colors ${newProject.kind === k
+                        ? k === 'internal'
+                          ? 'bg-[#bc8cff]/15 text-[#bc8cff] border border-[#bc8cff]/25'
+                          : 'bg-[#388bfd]/20 text-[#58a6ff] border border-[#388bfd]/40'
+                        : 'text-[#6e7681] hover:text-[#e6edf3] border border-transparent'
+                        }`}
+                    >
+                      {k === 'client' ? 'Client work' : 'Internal'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[#6e7681] mt-1">
+                  {newProject.kind === 'internal'
+                    ? 'Bench, R&D, marketing — billed to L3 Labs, no revenue, not pickable in finance billable totals.'
+                    : 'Client deliverable with revenue, dates, and allocations.'}
+                </p>
+              </div>
+
               <div>
                 <label className="text-xs text-[#8b949e] block mb-1.5">Project name *</label>
                 <input
                   className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
                   value={newProject.name}
                   onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g. Brand redesign"
+                  placeholder={newProject.kind === 'internal' ? 'e.g. Bench' : 'e.g. Brand redesign'}
                   autoFocus
                 />
               </div>
-              <div>
-                <label className="text-xs text-[#8b949e] block mb-1.5">Client name *</label>
-                <input
-                  className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
-                  value={newProject.client_name}
-                  onChange={e => setNewProject(p => ({ ...p, client_name: e.target.value }))}
-                  placeholder="e.g. Acme Corp"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-[#8b949e] block mb-1.5">Deal value (₹)</label>
-                  <input
-                    type="number"
-                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
-                    value={newProject.sales_value}
-                    onChange={e => setNewProject(p => ({ ...p, sales_value: e.target.value }))}
-                    placeholder="150000"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-[#8b949e] block mb-1.5">Est. weeks</label>
-                  <input
-                    type="number"
-                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
-                    value={newProject.estimated_weeks}
-                    onChange={e => setNewProject(p => ({ ...p, estimated_weeks: e.target.value }))}
-                    placeholder="8"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-[#8b949e] block mb-1.5">Start date</label>
-                  <input
-                    type="date"
-                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
-                    value={newProject.start_date}
-                    onChange={e => setNewProject(p => ({ ...p, start_date: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-[#8b949e] block mb-1.5">Target end date</label>
-                  <input
-                    type="date"
-                    className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
-                    value={newProject.target_end_date}
-                    onChange={e => setNewProject(p => ({ ...p, target_end_date: e.target.value }))}
-                  />
-                </div>
-              </div>
+
+              {newProject.kind === 'client' && (
+                <>
+                  <div>
+                    <label className="text-xs text-[#8b949e] block mb-1.5">Client name *</label>
+                    <input
+                      className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
+                      value={newProject.client_name}
+                      onChange={e => setNewProject(p => ({ ...p, client_name: e.target.value }))}
+                      placeholder="e.g. Acme Corp"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-[#8b949e] block mb-1.5">Deal value (₹)</label>
+                      <input
+                        type="number"
+                        className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
+                        value={newProject.sales_value}
+                        onChange={e => setNewProject(p => ({ ...p, sales_value: e.target.value }))}
+                        placeholder="150000"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8b949e] block mb-1.5">Est. weeks</label>
+                      <input
+                        type="number"
+                        className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] placeholder-[#6e7681]"
+                        value={newProject.estimated_weeks}
+                        onChange={e => setNewProject(p => ({ ...p, estimated_weeks: e.target.value }))}
+                        placeholder="8"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-[#8b949e] block mb-1.5">Start date</label>
+                      <input
+                        type="date"
+                        className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                        value={newProject.start_date}
+                        onChange={e => setNewProject(p => ({ ...p, start_date: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#8b949e] block mb-1.5">Target end date</label>
+                      <input
+                        type="date"
+                        className="w-full text-sm border border-[#30363d] rounded-lg px-3 py-2 bg-[#0d1117] text-[#e6edf3] focus:outline-none focus:border-[#58a6ff]"
+                        value={newProject.target_end_date}
+                        onChange={e => setNewProject(p => ({ ...p, target_end_date: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex gap-2 px-5 pb-5">
               <button
                 className="flex-1 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-sm transition-colors disabled:opacity-50"
                 onClick={() => createMutation.mutate()}
-                disabled={!newProject.name || !newProject.client_name || createMutation.isPending}
+                disabled={!newProject.name || (newProject.kind === 'client' && !newProject.client_name) || createMutation.isPending}
               >
                 {createMutation.isPending ? 'Creating…' : 'Create project'}
               </button>

@@ -492,6 +492,47 @@ export default function FinancePage() {
     .sort((a, b) => (b.sales_value ?? 0) - (a.sales_value ?? 0))
   const totalLostValue = lostProjects.reduce((s, p) => s + (p.sales_value ?? 0), 0)
 
+  // ── Non-billable & support hours for the selected month ──
+  // Internal: any entry against a kind='internal' project.
+  // Support: client project, post-completion — status 'lost', or 'completed'
+  // with an entry date after actual_end_date. These don't show in the main
+  // Projects table (which only renders REVENUE_STATUSES with overlap), so we
+  // surface them here so the founder sees how much team time goes uncharged.
+  const nonBillable = (() => {
+    type Bucket = { project: Project; hours: number }
+    const projectsById = new Map<string, Project>()
+    for (const p of projects ?? []) projectsById.set(p.id, p)
+    const internal = new Map<string, Bucket>()
+    const support = new Map<string, Bucket>()
+    for (const e of timeEntries ?? []) {
+      if (e.date < monthStartIso || e.date > monthEndIso) continue
+      const p = projectsById.get(e.project_id)
+      if (!p) continue
+      const hours = Number(e.hours)
+      if (p.kind === 'internal') {
+        const b = internal.get(p.id) ?? { project: p, hours: 0 }
+        b.hours += hours
+        internal.set(p.id, b)
+      } else if (
+        p.status === 'lost'
+        || (p.status === 'completed' && p.actual_end_date && e.date > p.actual_end_date)
+      ) {
+        const b = support.get(p.id) ?? { project: p, hours: 0 }
+        b.hours += hours
+        support.set(p.id, b)
+      }
+    }
+    const sortHrs = (a: Bucket, b: Bucket) => b.hours - a.hours
+    const internalRows = Array.from(internal.values()).sort(sortHrs)
+    const supportRows = Array.from(support.values()).sort(sortHrs)
+    return {
+      internalRows,
+      supportRows,
+      internalTotal: internalRows.reduce((s, r) => s + r.hours, 0),
+      supportTotal: supportRows.reduce((s, r) => s + r.hours, 0),
+    }
+  })()
+
   return (
     <div className="p-6 space-y-6 min-h-screen bg-[#0d1117]">
       <FinanceNav />
@@ -835,6 +876,67 @@ export default function FinancePage() {
           </div>
         )}
       </div>
+
+      {/* ── Non-billable & support ── */}
+      {(nonBillable.internalRows.length > 0 || nonBillable.supportRows.length > 0) && (
+        <div className="rounded-lg border border-[#30363d] bg-[#161b22]">
+          <div className="px-5 py-4 border-b border-[#30363d]">
+            <h2 className="text-sm font-medium text-[#e6edf3]">Non-billable &amp; support · {monthLabel(year, month)}</h2>
+            <p className="text-xs text-[#6e7681] mt-0.5">
+              Internal time and post-completion client support — hours not tied to billable revenue.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[#30363d]">
+            {/* Internal */}
+            <div className="px-5 py-4">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="text-xs font-medium text-[#bc8cff] uppercase tracking-wide">Internal</h3>
+                <span className="text-sm font-semibold text-[#e6edf3] tabular-nums">
+                  {nonBillable.internalTotal.toFixed(1)}<span className="text-xs text-[#6e7681] ml-0.5">h</span>
+                </span>
+              </div>
+              {nonBillable.internalRows.length === 0 ? (
+                <p className="text-xs text-[#6e7681] py-1">No internal hours logged this month.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {nonBillable.internalRows.map(({ project: p, hours }) => (
+                    <li key={p.id} className="flex items-center gap-2 text-sm">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: p.color ?? '#bc8cff' }} />
+                      <span className="flex-1 truncate text-[#c9d1d9]">{p.name}</span>
+                      <span className="text-[#8b949e] tabular-nums">{hours.toFixed(1)}h</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* Post-completion support */}
+            <div className="px-5 py-4">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="text-xs font-medium text-[#f59e0b] uppercase tracking-wide">Post-completion support</h3>
+                <span className="text-sm font-semibold text-[#e6edf3] tabular-nums">
+                  {nonBillable.supportTotal.toFixed(1)}<span className="text-xs text-[#6e7681] ml-0.5">h</span>
+                </span>
+              </div>
+              {nonBillable.supportRows.length === 0 ? (
+                <p className="text-xs text-[#6e7681] py-1">No post-completion support logged this month.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {nonBillable.supportRows.map(({ project: p, hours }) => (
+                    <li key={p.id} className="flex items-center gap-2 text-sm">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: p.color ?? '#f59e0b' }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-[#c9d1d9]">{p.name}</p>
+                        <p className="text-[10px] text-[#6e7681] truncate">{p.client_name} · {p.status}</p>
+                      </div>
+                      <span className="text-[#8b949e] tabular-nums">{hours.toFixed(1)}h</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 6-Month Trend ── */}
       <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5">

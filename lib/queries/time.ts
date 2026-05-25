@@ -6,19 +6,36 @@ export type TimeEntryWithRels = TimeEntry & {
   projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'> | null
 }
 
+export type AllocationProject = Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color' | 'actual_end_date'> & {
+  kind?: Project['kind']
+}
+
 /** Projects the person had ANY allocation overlap with on a given date.
- *  Allows back-logging during the 7-day window even if today's allocations changed. */
+ *  Allows back-logging during the 7-day window even if today's allocations changed.
+ *  Tries to fetch the `kind` column (added by the non-billable migration); falls
+ *  back to a narrower select if that column doesn't exist yet so the page stays
+ *  functional in the pre-migration window. */
 export async function getAllocationProjectsForDate(personId: string, date: string) {
   const supabase = createClient()
-  const { data, error } = await supabase
+  const wide = await supabase
     .from('allocations')
-    .select('id, project_id, start_date, end_date, capacity_percent, projects(id, name, client_name, status, color)')
+    .select('id, project_id, start_date, end_date, capacity_percent, projects(id, name, client_name, status, color, kind, actual_end_date)')
     .eq('person_id', personId)
     .lte('start_date', date)
     .gte('end_date', date)
     .order('start_date', { ascending: true })
-  if (error) throw error
-  return (data ?? []) as Array<Allocation & { projects: Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'> }>
+  if (!wide.error) {
+    return (wide.data ?? []) as Array<Allocation & { projects: AllocationProject }>
+  }
+  const narrow = await supabase
+    .from('allocations')
+    .select('id, project_id, start_date, end_date, capacity_percent, projects(id, name, client_name, status, color, actual_end_date)')
+    .eq('person_id', personId)
+    .lte('start_date', date)
+    .gte('end_date', date)
+    .order('start_date', { ascending: true })
+  if (narrow.error) throw narrow.error
+  return (narrow.data ?? []) as unknown as Array<Allocation & { projects: AllocationProject }>
 }
 
 export type AllocationWithDeadline = Allocation & {
@@ -177,13 +194,30 @@ export async function getMonthTimeEntries(fromDate: string, toDate: string) {
   return (data ?? []) as Pick<TimeEntry, 'person_id' | 'project_id' | 'date' | 'hours'>[]
 }
 
-/** Lightweight project lookup for joining client-side. */
+export type ProjectLite = {
+  id: string
+  name: string
+  color: string | null
+  client_name: string
+  status: Project['status']
+  kind?: Project['kind']
+  actual_end_date: string | null
+}
+
+/** Lightweight project lookup for joining client-side. Includes the fields
+ *  needed to classify entries as billable / internal / post-completion support.
+ *  Falls back to a narrower select if `kind` doesn't exist yet (pre-migration). */
 export async function getAllProjectsLite() {
   const supabase = createClient()
-  const { data, error } = await supabase
+  const wide = await supabase
     .from('projects')
-    .select('id, name, color')
+    .select('id, name, color, client_name, status, kind, actual_end_date')
     .order('name')
-  if (error) throw error
-  return (data ?? []) as Array<{ id: string; name: string; color: string | null }>
+  if (!wide.error) return (wide.data ?? []) as ProjectLite[]
+  const narrow = await supabase
+    .from('projects')
+    .select('id, name, color, client_name, status, actual_end_date')
+    .order('name')
+  if (narrow.error) throw narrow.error
+  return (narrow.data ?? []) as unknown as ProjectLite[]
 }

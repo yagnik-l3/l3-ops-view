@@ -207,6 +207,7 @@ export type Database = {
           delay_reason: string | null
           estimated_weeks: number | null
           id: string
+          kind: Database["public"]["Enums"]["project_kind"]
           lost_at: string | null
           lost_reason: string | null
           name: string
@@ -225,6 +226,7 @@ export type Database = {
           delay_reason?: string | null
           estimated_weeks?: number | null
           id?: string
+          kind?: Database["public"]["Enums"]["project_kind"]
           lost_at?: string | null
           lost_reason?: string | null
           name: string
@@ -243,6 +245,7 @@ export type Database = {
           delay_reason?: string | null
           estimated_weeks?: number | null
           id?: string
+          kind?: Database["public"]["Enums"]["project_kind"]
           lost_at?: string | null
           lost_reason?: string | null
           name?: string
@@ -446,6 +449,7 @@ export type Database = {
         | "not_converted"
       ledger_account_type: "cash" | "bank"
       person_type: "developer" | "designer" | "other" | "founder"
+      project_kind: "client" | "internal"
       project_status:
         | "pipeline"
         | "active"
@@ -471,6 +475,7 @@ export type Database = {
 // ── Convenience type aliases ────────────────────────────────────────────────
 
 export type ProjectStatus = Database["public"]["Enums"]["project_status"]
+export type ProjectKind = Database["public"]["Enums"]["project_kind"]
 export type PersonType = Database["public"]["Enums"]["person_type"]
 export type ConnectVia = Database["public"]["Enums"]["connect_via"]
 export type LeadSource = Database["public"]["Enums"]["lead_source"]

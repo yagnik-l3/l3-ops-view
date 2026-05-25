@@ -2,16 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
 import {
   getAllocationProjectsForDate,
+  getAllProjectsLite,
   getEntriesForDate,
   upsertTimeEntries,
   deleteTimeEntry,
   type UpsertRow,
+  type ProjectLite,
 } from '@/lib/queries/time'
 import { format, parseISO, subDays, addDays } from 'date-fns'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Check, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check, AlertTriangle, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/supabase/types'
 
@@ -30,6 +31,8 @@ interface DailyLogEditorProps {
   initialDate?: string
 }
 
+type RowMode = 'normal' | 'internal' | 'support'
+
 type Row = {
   entryId: string | null
   projectId: string
@@ -38,18 +41,43 @@ type Row = {
   color: string | null
   hours: string
   isAdhoc: boolean
+  mode: RowMode
 }
 
 const todayIso = () => format(new Date(), 'yyyy-MM-dd')
-const PICKABLE_STATUSES = new Set(['pipeline', 'active', 'in_production', 'on_hold', 'paused'])
+/** Client statuses surfaced in the picker even with no search query. The
+ *  picker is intentionally tight by default so the team isn't scrolling past
+ *  pipeline/on-hold/paused projects they aren't actively delivering. Completed
+ *  and lost projects are still pickable, but only via search — see
+ *  `availableProjects` below. */
+const DEFAULT_VISIBLE_CLIENT_STATUSES = new Set(['active'])
+/** When the user types something, we widen the search to include past projects
+ *  so post-completion support work is reachable by typing the client name. */
+const SEARCHABLE_CLIENT_STATUSES = new Set([
+  'pipeline', 'active', 'in_production', 'on_hold', 'paused', 'completed', 'lost',
+])
+
+/** Classify a row's badge mode given the entry date and project metadata.
+ *  `kind` may be undefined when the migration hasn't been run yet — falls
+ *  back to status-only logic in that case. */
+function rowModeFor(
+  date: string,
+  project: { status?: Project['status']; kind?: Project['kind']; actual_end_date?: string | null } | null | undefined,
+): RowMode {
+  if (!project) return 'normal'
+  if (project.kind === 'internal') return 'internal'
+  if (project.status === 'completed' || project.status === 'lost') return 'support'
+  if (project.actual_end_date && date > project.actual_end_date) return 'support'
+  return 'normal'
+}
 
 export function DailyLogEditor({ personId, userId, allowPastDates = false, initialDate }: DailyLogEditorProps) {
   const queryClient = useQueryClient()
-  const supabase = createClient()
   const [date, setDate] = useState(allowPastDates && initialDate ? initialDate : todayIso())
   const [rows, setRows] = useState<Row[]>([])
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const [pickerSearch, setPickerSearch] = useState('')
 
   const isToday = date === todayIso()
 
@@ -65,14 +93,7 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
 
   const { data: allProjects } = useQuery({
     queryKey: ['log_all_projects'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name, client_name, status, color')
-        .order('name')
-      if (error) throw error
-      return data as Pick<Project, 'id' | 'name' | 'client_name' | 'status' | 'color'>[]
-    },
+    queryFn: getAllProjectsLite,
     staleTime: 60_000,
   })
 
@@ -90,6 +111,7 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
         color: a.projects.color ?? null,
         hours: '',
         isAdhoc: false,
+        mode: rowModeFor(date, a.projects),
       })
     }
     for (const e of entries) {
@@ -107,12 +129,13 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
           color: project?.color ?? null,
           hours: String(Number(e.hours)),
           isAdhoc: !allocIds.has(e.project_id),
+          mode: rowModeFor(date, project),
         })
       }
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRows(Array.from(projectMap.values()))
-  }, [allocations, entries, allProjects])
+  }, [allocations, entries, allProjects, date])
 
   const totalHours = useMemo(
     () => rows.reduce((sum, r) => sum + (parseFloat(r.hours) || 0), 0),
@@ -121,8 +144,16 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
 
   const availableProjects = useMemo(() => {
     const shownIds = new Set(rows.map(r => r.projectId))
-    return (allProjects ?? []).filter(p => PICKABLE_STATUSES.has(p.status) && !shownIds.has(p.id))
-  }, [allProjects, rows])
+    const q = pickerSearch.trim().toLowerCase()
+    const statuses = q ? SEARCHABLE_CLIENT_STATUSES : DEFAULT_VISIBLE_CLIENT_STATUSES
+    return (allProjects ?? []).filter(p => {
+      if (shownIds.has(p.id)) return false
+      const passesStatus = p.kind === 'internal' || statuses.has(p.status)
+      if (!passesStatus) return false
+      if (!q) return true
+      return p.name.toLowerCase().includes(q) || (p.client_name?.toLowerCase().includes(q) ?? false)
+    })
+  }, [allProjects, rows, pickerSearch])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -165,7 +196,7 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
     setRows(rs => rs.map(r => r.projectId === projectId ? { ...r, ...patch } : r))
   }
 
-  function addProjectRow(p: Pick<Project, 'id' | 'name' | 'client_name' | 'color'>) {
+  function addProjectRow(p: ProjectLite) {
     setRows(rs => [
       ...rs,
       {
@@ -176,6 +207,7 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
         color: p.color ?? null,
         hours: '',
         isAdhoc: true,
+        mode: rowModeFor(date, p),
       },
     ])
     setShowProjectPicker(false)
@@ -318,20 +350,33 @@ export function DailyLogEditor({ personId, userId, allowPastDates = false, initi
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs text-[#8b949e]">Pick a project to log against</p>
             <button
-              onClick={() => setShowProjectPicker(false)}
+              onClick={() => { setShowProjectPicker(false); setPickerSearch('') }}
               className="text-[10px] text-[#6e7681] hover:text-[#e6edf3]"
             >
               Cancel
             </button>
           </div>
+          <div className="relative mb-2">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#6e7681]" />
+            <input
+              type="text"
+              value={pickerSearch}
+              onChange={e => setPickerSearch(e.target.value)}
+              placeholder="Search projects or clients…"
+              autoFocus
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-[#30363d] rounded-lg bg-[#0d1117] text-[#e6edf3] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] transition-colors"
+            />
+          </div>
           {availableProjects.length === 0 ? (
-            <p className="text-xs text-[#6e7681] py-2">All projects are already added.</p>
+            <p className="text-xs text-[#6e7681] py-2">
+              {pickerSearch ? 'No projects match your search.' : 'No active projects to add — try searching to include past or paused ones.'}
+            </p>
           ) : (
             <div className="max-h-64 overflow-y-auto space-y-1">
               {availableProjects.map(p => (
                 <button
                   key={p.id}
-                  onClick={() => addProjectRow(p)}
+                  onClick={() => { addProjectRow(p); setPickerSearch('') }}
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#21262d] text-sm text-[#e6edf3] transition-colors flex items-center justify-between gap-2"
                 >
                   <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -392,7 +437,15 @@ function ProjectRow({ row, onHoursChange, onRemove }: ProjectRowProps) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-[#e6edf3] truncate">{row.projectName}</p>
-          {row.isAdhoc && (
+          {row.mode === 'internal' ? (
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#bc8cff]/15 text-[#bc8cff] border border-[#bc8cff]/25">
+              internal
+            </span>
+          ) : row.mode === 'support' ? (
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#f59e0b]/15 text-[#f59e0b] border border-[#f59e0b]/25">
+              support
+            </span>
+          ) : row.isAdhoc && (
             <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/25">
               ad-hoc
             </span>
